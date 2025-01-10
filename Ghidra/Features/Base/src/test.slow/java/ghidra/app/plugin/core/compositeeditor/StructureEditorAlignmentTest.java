@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,8 +17,9 @@ package ghidra.app.plugin.core.compositeeditor;
 
 import static org.junit.Assert.*;
 
-import javax.swing.JRadioButton;
-import javax.swing.JTextField;
+import java.util.Arrays;
+
+import javax.swing.*;
 
 import org.junit.Test;
 
@@ -51,20 +52,20 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 		assertEquals(1, structureModel.getNumSelectedRows());
 		checkSelection(new int[] { 0 });
 
-//		// Check enablement.
-//		CompositeEditorAction[] pActions = provider.getActions();
-//		for (int i = 0; i < pActions.length; i++) {
-//			if ((pActions[i] instanceof FavoritesAction)
-//			|| (pActions[i] instanceof CycleGroupAction)
-//			|| (pActions[i] instanceof EditFieldAction)
-//			|| (pActions[i] instanceof PointerAction)
-//			|| (pActions[i] instanceof HexNumbersAction)) {
-//				checkEnablement(pActions[i], true);
-//			}
-//			else {
-//				checkEnablement(pActions[i], false);
-//			}
-//		}
+		// Check enablement for empty table with modified state.
+		CompositeEditorTableAction[] pActions = provider.getActions();
+		for (CompositeEditorTableAction pAction : pActions) {
+			if ((pAction instanceof FavoritesAction) || (pAction instanceof CycleGroupAction) ||
+				(pAction instanceof EditFieldAction) || (pAction instanceof PointerAction) ||
+				(pAction instanceof HexNumbersAction) ||
+				(pAction instanceof InsertUndefinedAction) ||
+				(pAction instanceof AddBitFieldAction) || (pAction instanceof ApplyAction)) {
+				checkEnablement(pAction, true);
+			}
+			else {
+				checkEnablement(pAction, false);
+			}
+		}
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		addDataType(new ByteDataType());
@@ -91,6 +92,8 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 
 		waitForSwing();
 
+		assertTrue(Arrays.equals(new int[] { 0 }, model.getSelectedRows()));
+
 		assertEquals(3, structureModel.getNumComponents());
 		assertEquals(4, structureModel.getRowCount());
 		checkRow(0, 0, 1, "db", new ByteDataType(), "", "");
@@ -99,7 +102,7 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 		assertLength(10);
 		assertActualAlignment(1);
 
-		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> enable packing
+		turnOnPacking();
 		assertIsPackingEnabled(true);
 		assertDefaultPacked();
 
@@ -122,19 +125,31 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 		addDataType(new FloatDataType());
 		addDataType(arrayDt);
 
+		structureModel.viewDTM.clearUndo();
+
+		waitForSwing();
+
+		assertTrue(Arrays.equals(new int[] { 0 }, model.getSelectedRows()));
+
+		// NOTE: Settings action is missing since it is provided by the DataPlugin 
+		// which has not been added to the test tool
+
 		// Check enablement.
 		CompositeEditorTableAction[] pActions = provider.getActions();
-		for (int i = 0; i < pActions.length; i++) {
-			if ((pActions[i] instanceof FavoritesAction) ||
-				(pActions[i] instanceof CycleGroupAction) ||
-				(pActions[i] instanceof EditFieldAction) ||
-				(pActions[i] instanceof InsertUndefinedAction) ||
-				(pActions[i] instanceof PointerAction) ||
-				(pActions[i] instanceof HexNumbersAction) || (actions[i] instanceof ApplyAction)) {
-				checkEnablement(pActions[i], true);
+		for (CompositeEditorTableAction pAction : pActions) {
+			if ((pAction instanceof FavoritesAction) || (pAction instanceof CycleGroupAction) ||
+				(pAction instanceof EditFieldAction) ||
+				(pAction instanceof InsertUndefinedAction) || (pAction instanceof PointerAction) ||
+				(pAction instanceof HexNumbersAction) || (pAction instanceof MoveDownAction) ||
+				(pAction instanceof DuplicateAction) ||
+				(pAction instanceof DuplicateMultipleAction) || (pAction instanceof DeleteAction) ||
+				(pAction instanceof ArrayAction) ||
+				(pAction instanceof CreateInternalStructureAction) ||
+				(pAction instanceof ShowComponentPathAction) || (pAction instanceof ApplyAction)) {
+				checkEnablement(pAction, true);
 			}
 			else {
-				checkEnablement(pActions[i], false);
+				checkEnablement(pAction, false);
 			}
 		}
 
@@ -158,7 +173,9 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 
 		waitForSwing();
 
-		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> enable packing
+		assertTrue(Arrays.equals(new int[] { 0 }, model.getSelectedRows()));
+
+		turnOnPacking();
 		assertIsPackingEnabled(true);
 		assertDefaultPacked();
 
@@ -187,7 +204,7 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 
 		waitForSwing();
 
-		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> enable packing
+		turnOnPacking();
 		assertIsPackingEnabled(true);
 		assertDefaultPacked();
 
@@ -318,8 +335,8 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 	public void testAlignedEditToFunctionDefinitionDataType() throws Exception {
 
 		startTransaction("addExternal");
-		ExternalLocation extLoc = program.getExternalManager().addExtFunction(Library.UNKNOWN,
-			"extLabel", null, SourceType.USER_DEFINED);
+		ExternalLocation extLoc = program.getExternalManager()
+				.addExtFunction(Library.UNKNOWN, "extLabel", null, SourceType.USER_DEFINED);
 		Function function = extLoc.createFunction();
 		endTransaction(true);
 
@@ -370,8 +387,6 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 	public void testSelectionOnGoFromNonPackedToDefaultPackedStructure() throws Exception {
 		init(emptyStructure, pgmRootCat, false);
 
-		CompEditorPanel editorPanel = (CompEditorPanel) getPanel();
-
 		assertTrue(structureModel.hasChanges());// initial unsaved empty structure
 		assertTrue(structureModel.isValidName());// name should be valid
 		assertEquals(structureModel.getTypeName(), "Structure");
@@ -395,7 +410,7 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 
 		checkSelection(new int[] { 3 });
 
-		pressButtonByName(getPanel(), "Packing Enablement"); // toggle -> enable packing
+		turnOnPacking();
 		assertIsPackingEnabled(true);
 		assertDefaultPacked();
 
@@ -578,12 +593,12 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 		assertNotNull(asciiDt);
 		addAtPoint(asciiDt, 2, 3);
 
-		assertEquals(3, structureModel.getNumComponents());
-		assertEquals(4, structureModel.getRowCount());
+		assertEquals(7, structureModel.getNumComponents());
+		assertEquals(8, structureModel.getRowCount());
 		checkRow(0, 0, 1, "db", new ByteDataType(), "", "");
 		checkRow(1, 1, 4, "float", new FloatDataType(), "", "");
 		checkRow(2, 5, 1, "char", asciiDt, "", "");
-		assertLength(6);
+		assertLength(10);
 		assertActualAlignment(1);
 	}
 
@@ -784,7 +799,17 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 		assertActualAlignment(4);
 	}
 
-	////////////////////////////
+//=================================================================================================
+// Private Methods
+//=================================================================================================	
+
+	private void turnOnPacking() {
+		AbstractButton packingButton = findButtonByName(getPanel(), "Packing Enablement");
+		if (packingButton.isSelected()) {
+			return;
+		}
+		pressButton(packingButton, true);
+	}
 
 	private void checkRow(int rowIndex, int offset, int length, String mnemonic, DataType dataType,
 			String name, String comment) {
@@ -801,7 +826,7 @@ public class StructureEditorAlignmentTest extends AbstractStructureEditorTest {
 	}
 
 	private DataTypeComponent addDataType(DataType dataType) {
-		return structureModel.viewComposite.add(dataType);
+		return structureModel.viewDTM.withTransaction("Add Test Component",
+			() -> structureModel.viewComposite.add(dataType));
 	}
-
 }

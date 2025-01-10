@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,11 +24,13 @@ package ghidra.app.plugin.core.misc;
 import java.awt.Color;
 import java.io.IOException;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 
 import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.ToolBarData;
+import generic.theme.GColor;
+import generic.theme.GIcon;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
@@ -50,7 +52,6 @@ import ghidra.util.task.SwingUpdateManager;
 import ghidra.util.task.TaskMonitor;
 import ghidra.util.worker.Job;
 import ghidra.util.worker.Worker;
-import resources.ResourceManager;
 
 /**
  * Manages the markers to display areas where changes have occurred 
@@ -73,6 +74,15 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	private final static int OTHER_CHANGES_PRIORITY = MarkerService.CHANGE_PRIORITY + 2;
 	private final static int CONFLICT_PRIORITY = MarkerService.CHANGE_PRIORITY + 3;
 
+	private static final Color BG_COLOR_MARKER_UNSAVED =
+		new GColor("color.bg.plugin.myprogramchangesdisplay.markers.changes.unsaved");
+	private static final Color BG_COLOR_MARKER_CONFLICTING =
+		new GColor("color.bg.plugin.myprogramchangesdisplay.markers.changes.conflicting");
+	private static final Color BG_COLOR_MARKER_LATEST =
+		new GColor("color.bg.plugin.myprogramchangesdisplay.markers.changes.latest.version");
+	private static final Color BG_COLOR_MARKER_NOT_CHECKED_IN =
+		new GColor("color.bg.plugin.myprogramchangesdisplay.markers.changes.not.checked.in");
+
 	private MarkerService markerService;
 
 	private MarkerSet currentMyChangeMarks; // my changes since last save
@@ -92,14 +102,21 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	private int serverVersion = -1;
 	private int localVersion = -1;
 
-	private boolean programChangedLocally;
-	private boolean programChangedRemotely;
-	private boolean programSaved;
+	// currentProgram object changed; affects currentMyChangeMarks
+	private boolean currentProgramChanged;
+
+	// domain file updated on server; affects currentOtherChangeMarks
+	private boolean domainFileChangedRemotely;
+
+	// domain file updated locally; affects currentChangesSinceCheckoutMarks
+	private boolean domainFileChangedLocally;
+
+	// flag to force update of currentConflictChangeMarks
 	private boolean updateConflicts;
 
 	public MyProgramChangesDisplayPlugin(PluginTool tool) {
 
-		super(tool, false, false);
+		super(tool);
 
 		folderListener = new ProgramFolderListener();
 		transactionListener = new ProgramTransactionListener();
@@ -110,7 +127,7 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 
 	private void createActions() {
 
-		ImageIcon icon = ResourceManager.loadImage("images/vcMerge.png");
+		Icon icon = new GIcon("icon.plugin.myprogramchanges.merge");
 		mergeAction = new DockingAction("Update", getName()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
@@ -127,17 +144,17 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 		mergeAction.setDescription("Update checked out file with latest version");
 		mergeAction.setHelpLocation(new HelpLocation("VersionControl", mergeAction.getName()));
 
-		icon = ResourceManager.loadImage("images/vcCheckIn.png");
+		icon = new GIcon("icon.plugin.myprogramchanges.checkin");
 		checkInAction = new DockingAction("CheckIn", getName()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
-				AppInfo.getFrontEndTool()
-						.checkIn(tool, currentProgram.getDomainFile());
+				AppInfo.getFrontEndTool().checkIn(tool, currentProgram.getDomainFile());
 			}
 
 			@Override
 			public boolean isEnabledForContext(ActionContext context) {
-				return currentProgram != null && currentProgram.getDomainFile().canCheckin();
+				return currentProgram != null &&
+					currentProgram.getDomainFile().modifiedSinceCheckout();
 			}
 		};
 
@@ -171,9 +188,9 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 
 		serverVersion = -1;
 		localVersion = -1;
-		programChangedLocally = false;
-		programChangedRemotely = false;
-		programSaved = false;
+		currentProgramChanged = false;
+		domainFileChangedRemotely = false;
+		domainFileChangedLocally = false;
 		program.removeTransactionListener(transactionListener);
 		program.removeListener(this);
 		disposeMarkerSets(program);
@@ -181,9 +198,9 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 
 	private void intializeChangeMarkers() {
 		// set all the triggers for updating markers when initializing
-		programChangedLocally = true;
-		programChangedRemotely = true;
-		programSaved = true;
+		currentProgramChanged = true;
+		domainFileChangedRemotely = true;
+		domainFileChangedLocally = true;
 		updateConflicts = true;
 		updateChangeMarkers();
 	}
@@ -191,7 +208,7 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	private void createMarkerSets(Program program) {
 		currentMyChangeMarks =
 			markerService.createAreaMarker("Changes: Unsaved", "My changes not yet saved", program,
-				MY_CHANGE_PRIORITY, true, true, false, Color.darkGray);
+				MY_CHANGE_PRIORITY, true, true, false, BG_COLOR_MARKER_UNSAVED);
 
 		if (program.getDomainFile().isCheckedOut()) {
 			trackServerChanges(program);
@@ -201,15 +218,15 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	private void trackServerChanges(Program program) {
 		currentChangesSinceCheckoutMarks = markerService.createAreaMarker("Changes: Not Checked-In",
 			"My saved changes made since I checked it out", program, CHANGES_SINCE_CO_PRIORITY,
-			true, true, false, Color.GREEN);
+			true, true, false, BG_COLOR_MARKER_NOT_CHECKED_IN);
 
 		currentOtherChangeMarks = markerService.createAreaMarker("Changes: Latest Version",
 			"Changes made by others to this program since I checked it out", program,
-			OTHER_CHANGES_PRIORITY, true, true, false, Color.BLUE);
+			OTHER_CHANGES_PRIORITY, true, true, false, BG_COLOR_MARKER_LATEST);
 
 		currentConflictChangeMarks = markerService.createAreaMarker("Changes: Conflicting",
 			"Changes made by others to this program that conflict with my changes", program,
-			CONFLICT_PRIORITY, true, true, false, Color.RED);
+			CONFLICT_PRIORITY, true, true, false, BG_COLOR_MARKER_CONFLICTING);
 	}
 
 	private void disposeMarkerSets(Program program) {
@@ -255,8 +272,7 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	 */
 	private void updateChangeMarkers() {
 
-		Swing.assertSwingThread(
-			"Change markers must be manipulated on the Swing thread");
+		Swing.assertSwingThread("Change markers must be manipulated on the Swing thread");
 
 		if (currentProgram == null) {
 			return;
@@ -264,37 +280,36 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 
 		ProgramChangeSet changeSet = currentProgram.getChanges();
 
-		if (programChangedLocally) {
-			currentMyChangeMarks.setAddressSetCollection(
-				changeSet.getAddressSetCollectionSinceLastSave());
+		if (currentProgramChanged) {
+			currentMyChangeMarks
+					.setAddressSetCollection(changeSet.getAddressSetCollectionSinceLastSave());
 		}
 
 		if (isTrackingServerChanges()) {
-			if (programSaved) {
-				currentChangesSinceCheckoutMarks.setAddressSetCollection(
-					changeSet.getAddressSetCollectionSinceCheckout());
+			if (domainFileChangedLocally) {
+				currentChangesSinceCheckoutMarks
+						.setAddressSetCollection(changeSet.getAddressSetCollectionSinceCheckout());
 			}
 
-			if (programChangedRemotely) {
-				currentOtherChangeMarks.setAddressSetCollection(
-					new SingleAddressSetCollection(otherChangeSet));
+			if (domainFileChangedRemotely) {
+				currentOtherChangeMarks
+						.setAddressSetCollection(new SingleAddressSetCollection(otherChangeSet));
 			}
 
-			// only update conflict markers when server changeSet changes or we end a transaction
-			if (programChangedRemotely || updateConflicts) {
-				AddressSet intersect =
-					changeSet.getAddressSetCollectionSinceCheckout()
-							.getCombinedAddressSet()
-							.intersect(
-								otherChangeSet);
-				currentConflictChangeMarks.setAddressSetCollection(
-					new SingleAddressSetCollection(intersect));
+			// Update conflict markers when forced by server version change,
+			// local version change (merge may have occured) or a transaction has ended
+			if (updateConflicts) {
+				AddressSet intersect = changeSet.getAddressSetCollectionSinceCheckout()
+						.getCombinedAddressSet()
+						.intersect(otherChangeSet);
+				currentConflictChangeMarks
+						.setAddressSetCollection(new SingleAddressSetCollection(intersect));
 			}
 		}
 
-		programChangedLocally = false;
-		programChangedRemotely = false;
-		programSaved = false;
+		currentProgramChanged = false;
+		domainFileChangedRemotely = false;
+		domainFileChangedLocally = false;
 		updateConflicts = false;
 	}
 
@@ -303,30 +318,43 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	 * checkout and launch update thread if necessary.
 	 */
 	private void updateForDomainFileChanged() {
+
 		DomainFile df = currentProgram.getDomainFile();
+		if (!df.isCheckedOut()) {
+			// Only currentMyChangeMarks are maintained using domain object change listener
+			// when file is not checked-out
+			return;
+		}
 
 		int latestServerVersion = df.getLatestVersion();
 		int latestLocalVersion = df.getVersion();
-		// if the server version changes, schedule thread to get server changeSet
-		// which will trigger an marker update for both the other and conflict marker sets.
-		if (df.isCheckedOut() && serverVersion != latestServerVersion) {
-			serverVersion = latestServerVersion;
-			localVersion = latestLocalVersion;
-			if (serverVersion == localVersion) {
-				otherChangeSet = new AddressSet();
-				programChangedRemotely = true;
-				updateManager.update();
-			}
-			else {
-				scheduleUpdatesFromServer(currentProgram);
-			}
+
+		boolean localVersionChanged = localVersion != latestLocalVersion;
+		boolean serverVersionChanged = serverVersion != latestServerVersion;
+		if (!localVersionChanged && !serverVersionChanged) {
+			return; // No update to change bars
 		}
-		// else just the local version changed, update conflict sets.
-		else if (latestLocalVersion != localVersion) {
-			localVersion = latestLocalVersion;
-			updateConflicts = true;
-			updateManager.update();
+
+		localVersion = latestLocalVersion;
+		serverVersion = latestServerVersion;
+
+		domainFileChangedLocally |= localVersionChanged;
+		domainFileChangedRemotely |= serverVersionChanged;
+		updateConflicts = true;
+
+		if (localVersion == serverVersion) {
+			// When server and local versions match otherChangeSet is empty
+			otherChangeSet = new AddressSet();
+			domainFileChangedRemotely = true;
 		}
+		else if (serverVersionChanged) {
+			// Use UpdateChangeSetJob to compute the otherChangeSet
+			// GUI update deferred to UpdateChangeSetJob
+			scheduleUpdatesFromServer(currentProgram);
+			return;
+		}
+
+		updateManager.update();
 	}
 
 	private void scheduleUpdatesFromServer(Program p) {
@@ -343,9 +371,9 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 
 	@Override
 	public void domainObjectChanged(DomainObjectChangedEvent ev) {
-		programChangedLocally = true;
-		if (ev.containsEvent(DomainObject.DO_OBJECT_SAVED)) {
-			programSaved = true;
+		currentProgramChanged = true;
+		if (ev.contains(DomainObjectEvent.SAVED)) {
+			domainFileChangedLocally = true;
 		}
 
 		updateManager.update();
@@ -362,7 +390,7 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	private class ProgramTransactionListener implements TransactionListener {
 
 		@Override
-		public void transactionStarted(DomainObjectAdapterDB domainObj, Transaction tx) {
+		public void transactionStarted(DomainObjectAdapterDB domainObj, TransactionInfo tx) {
 			// ignore
 		}
 
@@ -421,7 +449,11 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 		@Override
 		public void run(TaskMonitor monitor) throws CancelledException {
 
-			monitor.checkCanceled(); // plugin was shut down while we were scheduled
+			if (localVersion == serverVersion) {
+				return; // skip update if versions now match
+			}
+
+			monitor.checkCancelled(); // plugin was shut down while we were scheduled
 
 			ProgramChangeSet changes = null;
 			try {
@@ -449,7 +481,8 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 			}
 
 			otherChangeSet = remoteChanges;
-			programChangedRemotely = true;
+			domainFileChangedRemotely = true;
+			updateConflicts = true;
 			updateManager.update();
 		}
 	}

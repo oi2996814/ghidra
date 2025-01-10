@@ -19,18 +19,18 @@ import java.io.IOException;
 import java.io.Writer;
 
 /**
- * This class is the version of {@link AbstractTypeProgramInterface} for Microsoft v8.00 PDB.
+ * This class is the version of {@link TypeProgramInterface} for Microsoft v8.00 PDB.
  */
-public class TypeProgramInterface800 extends AbstractTypeProgramInterface {
+public class TypeProgramInterface800 extends TypeProgramInterface {
 
 	//==============================================================================================
 	// API
 	//==============================================================================================
 	/**
-	 * Constructor.
-	 * @param pdb {@link AbstractPdb} that owns this {@link AbstractTypeProgramInterface}.
-	 * @param recordCategory the RecordCategory of these records.
-	 * @param streamNumber The stream number that contains the {@link AbstractTypeProgramInterface}.
+	 * Constructor
+	 * @param pdb {@link AbstractPdb} that owns this {@link TypeProgramInterface}
+	 * @param recordCategory the RecordCategory of these records
+	 * @param streamNumber the stream number that contains the {@link TypeProgramInterface}
 	 */
 	public TypeProgramInterface800(AbstractPdb pdb, RecordCategory recordCategory,
 			int streamNumber) {
@@ -52,20 +52,13 @@ public class TypeProgramInterface800 extends AbstractTypeProgramInterface {
 
 	@Override
 	protected void dumpHeader(Writer writer) throws IOException {
-		StringBuilder builder = new StringBuilder();
-		builder.append("\nversionNumber: ");
-		builder.append(versionNumber);
-		builder.append("\nheaderLength: ");
-		builder.append(headerLength);
-		builder.append("\ntypeIndexMin: ");
-		builder.append(typeIndexMin);
-		builder.append("\ntypeIndexMaxExclusive: ");
-		builder.append(typeIndexMaxExclusive);
-		builder.append("\ndataLength: ");
-		builder.append(dataLength);
-		builder.append("\n");
-		builder.append(hash.dump());
-		writer.write(builder.toString());
+		writer.write("\nversionNumber: " + versionNumber);
+		writer.write("\nheaderLength: " + headerLength);
+		writer.write("\ntypeIndexMin: " + typeIndexMin);
+		writer.write("\ntypeIndexMaxExclusive: " + typeIndexMaxExclusive);
+		writer.write("\ndataLength: " + dataLength);
+		writer.write("\n");
+		hash.dump(writer);
 	}
 
 }

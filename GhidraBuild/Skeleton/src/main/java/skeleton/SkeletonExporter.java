@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,7 +28,7 @@ import ghidra.program.model.address.AddressSetView;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * TODO: Provide class-level documentation that describes what this exporter does.
+ * Provide class-level documentation that describes what this exporter does.
  */
 public class SkeletonExporter extends Exporter {
 
@@ -37,16 +37,24 @@ public class SkeletonExporter extends Exporter {
 	 */
 	public SkeletonExporter() {
 
-		// TODO: Name the exporter and associate a file extension with it
+		// Name the exporter and associate a file extension with it
 
 		super("My Exporter", "exp", null);
+	}
+
+	@Override
+	public boolean supportsAddressRestrictedExport() {
+
+		// Return true if addrSet export parameter can be used to restrict export
+
+		return false;
 	}
 
 	@Override
 	public boolean export(File file, DomainObject domainObj, AddressSetView addrSet,
 			TaskMonitor monitor) throws ExporterException, IOException {
 
-		// TODO: Perform the export, and return true if it succeeded
+		// Perform the export, and return true if it succeeded
 
 		return false;
 	}
@@ -55,7 +63,7 @@ public class SkeletonExporter extends Exporter {
 	public List<Option> getOptions(DomainObjectService domainObjectService) {
 		List<Option> list = new ArrayList<>();
 
-		// TODO: If this exporter has custom options, add them to 'list'
+		// If this exporter has custom options, add them to 'list'
 		list.add(new Option("Option name goes here", "Default option value goes here"));
 
 		return list;
@@ -64,6 +72,6 @@ public class SkeletonExporter extends Exporter {
 	@Override
 	public void setOptions(List<Option> options) throws OptionException {
 
-		// TODO: If this exporter has custom options, assign their values to the exporter here
+		// If this exporter has custom options, assign their values to the exporter here
 	}
 }

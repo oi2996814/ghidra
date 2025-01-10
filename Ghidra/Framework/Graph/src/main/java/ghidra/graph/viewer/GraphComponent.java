@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,7 +27,6 @@ import com.google.common.base.Function;
 import docking.DockingUtils;
 import docking.DockingWindowManager;
 import docking.actions.KeyBindingUtils;
-import docking.help.HelpService;
 import docking.widgets.EmptyBorderButton;
 import docking.widgets.PopupWindow;
 import docking.widgets.label.GIconLabel;
@@ -40,8 +39,13 @@ import edu.uci.ics.jung.visualization.decorators.PickableVertexPaintTransformer;
 import edu.uci.ics.jung.visualization.decorators.ToStringLabeller;
 import edu.uci.ics.jung.visualization.picking.PickedState;
 import edu.uci.ics.jung.visualization.picking.ShapePickSupport;
+import edu.uci.ics.jung.visualization.renderers.BasicEdgeRenderer;
 import edu.uci.ics.jung.visualization.renderers.Renderer;
+import edu.uci.ics.jung.visualization.renderers.Renderer.Vertex;
 import edu.uci.ics.jung.visualization.util.Caching;
+import generic.theme.*;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.graph.VisualGraph;
 import ghidra.graph.event.VisualGraphChangeListener;
 import ghidra.graph.viewer.edge.*;
@@ -58,8 +62,8 @@ import ghidra.graph.viewer.vertex.*;
 import ghidra.util.HTMLUtilities;
 import ghidra.util.HelpLocation;
 import ghidra.util.exception.AssertException;
+import help.HelpService;
 import resources.Icons;
-import resources.ResourceManager;
 import util.CollectionUtils;
 
 /**
@@ -79,6 +83,9 @@ import util.CollectionUtils;
  * @see GraphViewer
  */
 public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G extends VisualGraph<V, E>> {
+	public enum SatellitePosition {
+		UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT, LOWER_RIGHT
+	}
 
 	private static final double PARENT_TO_SATELLITE_RATIO = 4;// 2.5 smaller view seems better
 	private static final int MINIMUM_SATELLITE_WIDTH = 150;
@@ -91,6 +98,7 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 	private static final Integer SATELLITE_PROVIDER_BUTTON_LAYER = Integer.valueOf(199);
 	private static final Integer SATELLITE_VIEWER_LAYER = Integer.valueOf(200);
 	private static final Integer STALE_GRAPH_VIEW_LAYER = Integer.valueOf(300);
+	private static final Icon LARGE_SATELLITE_ICON = new GIcon("icon.graph.satellite.large");
 
 	private JPanel staleGraphViewPanel;
 	private MessagePaintable messagePaintable = new MessagePaintable();
@@ -125,6 +133,7 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 	private Dimension lastSize;
 
 	protected VisualGraphOptions vgOptions = new VisualGraphOptions();
+	private SatellitePosition dockedSatellitePosition = SatellitePosition.UPPER_RIGHT;
 
 	public GraphComponent(G graph) {
 
@@ -193,21 +202,6 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 
 		GraphViewer<V, E> viewer = new GraphViewer<>(layout, viewerSize);
 
-		Renderer<V, E> renderer = viewer.getRenderer();
-		renderer.setVertexRenderer(new VisualVertexRenderer<>());
-
-		RenderContext<V, E> renderContext = viewer.getRenderContext();
-
-		Color normal = Color.GREEN.darker().darker();
-		Color selected = Color.GREEN;
-		renderContext.setEdgeDrawPaintTransformer(e -> e.isSelected() ? selected : normal);
-		renderContext.setArrowDrawPaintTransformer(e -> e.isSelected() ? selected : normal);
-		renderContext.setArrowFillPaintTransformer(e -> e.isSelected() ? selected : normal);
-
-		PickedState<V> pickedVertexState = viewer.getPickedVertexState();
-		renderContext.setVertexFillPaintTransformer(
-			new PickableVertexPaintTransformer<>(pickedVertexState, Color.WHITE, Color.YELLOW));
-
 		viewer.setGraphOptions(vgOptions);
 
 		return viewer;
@@ -258,9 +252,37 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 	protected void decoratePrimaryViewer(GraphViewer<V, E> viewer, VisualGraphLayout<V, E> layout) {
 
 		Renderer<V, E> renderer = viewer.getRenderer();
-		renderer.setEdgeRenderer(layout.getEdgeRenderer());
+		BasicEdgeRenderer<V, E> edgeRenderer = layout.getEdgeRenderer();
+		renderer.setEdgeRenderer(edgeRenderer);
 
 		RenderContext<V, E> renderContext = viewer.getRenderContext();
+
+		GColor drawColor = new GColor("color.visualgraph.view.primary.edge.draw");
+		GColor focusedColor = new GColor("color.visualgraph.view.primary.edge.focused");
+		GColor selectedColor = new GColor("color.visualgraph.view.primary.edge.selected");
+		GColor hoveredColor = new GColor("color.visualgraph.view.primary.edge.hovered");
+		if (edgeRenderer instanceof VisualEdgeRenderer) {
+			VisualEdgeRenderer<V, E> visualEdgeRenderer =
+				(VisualEdgeRenderer<V, E>) renderer.getEdgeRenderer();
+			visualEdgeRenderer.setDrawColorTransformer(e -> drawColor);
+			visualEdgeRenderer.setFocusedColorTransformer(e -> focusedColor);
+			visualEdgeRenderer.setSelectedColorTransformer(e -> selectedColor);
+			visualEdgeRenderer.setHoveredColorTransformer(e -> hoveredColor);
+
+		}
+		else {
+			Function<? super E, Paint> edgeColorTransformer =
+				e -> e.isSelected() ? selectedColor : drawColor;
+			renderContext.setEdgeDrawPaintTransformer(edgeColorTransformer);
+			renderContext.setArrowDrawPaintTransformer(edgeColorTransformer);
+			renderContext.setArrowFillPaintTransformer(edgeColorTransformer);
+		}
+
+		VisualVertexRenderer<V, E> vertexRenderer = new VisualVertexRenderer<>();
+		renderer.setVertexRenderer(vertexRenderer);
+		PickedState<V> pickedVertexState = viewer.getPickedVertexState();
+		vertexRenderer.setVertexFillPaintTransformer(
+			new PickableVertexPaintTransformer<>(pickedVertexState, Palette.WHITE, Palette.YELLOW));
 
 		// this will paint thicker, but with the shape being used...which can look odd
 		//renderContext.setEdgeFillPaintTransformer(null);
@@ -318,9 +340,26 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 		RenderContext<V, E> renderContext = viewer.getRenderContext();
 
 		Renderer<V, E> renderer = viewer.getRenderer();
-		renderer.setVertexRenderer(viewer.getPreferredVertexRenderer());
-		renderer.setEdgeRenderer(new VisualGraphEdgeSatelliteRenderer<>(
-			(VisualEdgeRenderer<V, E>) layout.getEdgeRenderer()));
+		Vertex<V, E> vertexRenderer = viewer.getPreferredVertexRenderer();
+
+		renderContext
+				.setVertexFillPaintTransformer(
+					v -> new GColor("color.bg.visualgraph.satellite.vertex"));
+
+		renderer.setVertexRenderer(vertexRenderer);
+		VisualGraphEdgeSatelliteRenderer<V, E> visualEdgeRenderer =
+			new VisualGraphEdgeSatelliteRenderer<>(
+				(VisualEdgeRenderer<V, E>) layout.getEdgeRenderer());
+		renderer.setEdgeRenderer(visualEdgeRenderer);
+
+		visualEdgeRenderer.setDrawColorTransformer(
+			e -> new GColor("color.visualgraph.view.satellite.edge.draw"));
+		visualEdgeRenderer.setFocusedColorTransformer(
+			e -> new GColor("color.visualgraph.view.satellite.edge.focused"));
+		visualEdgeRenderer.setSelectedColorTransformer(
+			e -> new GColor("color.visualgraph.view.satellite.edge.selected"));
+		visualEdgeRenderer.setHoveredColorTransformer(
+			e -> new GColor("color.visualgraph.view.satellite.edge.hovered"));
 
 		Function<E, Shape> edgeTransformer = layout.getEdgeShapeTransformer();
 		renderContext.setEdgeShapeTransformer(edgeTransformer);
@@ -374,7 +413,7 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 
 		mainPanel.add(layeredPane, BorderLayout.CENTER);
 
-		satellite.setBorder(BorderFactory.createLineBorder(Color.BLACK));
+		satellite.setBorder(BorderFactory.createLineBorder(Colors.BORDER));
 
 		undockedSatellitePanel = new JPanel(new BorderLayout());
 		undockedSatellitePanel.addComponentListener(new ComponentAdapter() {
@@ -418,7 +457,7 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 	private EmptyBorderButton buildShowUndockedProviderButton() {
 		String tooltip = "Bring satellite view to the front";
 
-		Icon icon = ResourceManager.loadImage("images/network-wireless.png");
+		Icon icon = LARGE_SATELLITE_ICON;
 		JLabel iconLabel = new GIconLabel(icon);
 		iconLabel.setOpaque(false);
 		iconLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
@@ -592,7 +631,7 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 		return satelliteViewer;
 	}
 
-	protected VisualGraphViewUpdater<V, E> getViewUpdater() {
+	public VisualGraphViewUpdater<V, E> getViewUpdater() {
 		return primaryViewer.getViewUpdater();
 	}
 
@@ -747,6 +786,15 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 		updateSatellite(docked, true);
 	}
 
+	public SatellitePosition getSatellitePosition() {
+		return dockedSatellitePosition;
+	}
+
+	public void setSatellitePosition(SatellitePosition position) {
+		dockedSatellitePosition = position;
+		updateSatellite(satelliteViewer.isDocked(), isSatelliteShowing());
+	}
+
 	public void setSatelliteVisible(boolean visible) {
 
 		if (isSatelliteShowing() == visible) {
@@ -788,9 +836,8 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 		staleGraphViewPanel.setBounds(x, y, stalePanelSize.width, stalePanelSize.height);
 
 		Dimension buttonSize = showUndockedSatelliteButton.getPreferredSize();
-		x = parentSize.width - buttonSize.width;
-		y = parentSize.height - buttonSize.height;
-		showUndockedSatelliteButton.setBounds(x, y, buttonSize.width, buttonSize.height);
+		Point p = getSatellitePosition(parentSize, buttonSize);
+		showUndockedSatelliteButton.setBounds(p.x, p.y, buttonSize.width, buttonSize.height);
 
 		lastSize = new Dimension(parentSize.width, parentSize.height);
 	}
@@ -808,13 +855,28 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 			int newWidth = getNewBoundsSize(parentSize, satelliteSize);
 			satelliteSize.width = newWidth;
 			satelliteSize.height = newWidth;
-			int x = parentSize.width - satelliteSize.width;
-			int y = parentSize.height - satelliteSize.height;
-			satelliteViewer.setBounds(x, y, satelliteSize.width, satelliteSize.height);
+			Point p = getSatellitePosition(parentSize, satelliteSize);
+			satelliteViewer.setBounds(p.x, p.y, satelliteSize.width, satelliteSize.height);
 		}
 
 		VisualGraphViewUpdater<V, E> viewUpdater = getViewUpdater();
 		viewUpdater.fitGraphToViewerNow(satelliteViewer);
+	}
+
+	private Point getSatellitePosition(Dimension parentSize, Dimension satelliteSize) {
+		int x = parentSize.width - satelliteSize.width;
+		int y = parentSize.height - satelliteSize.height;
+		switch (dockedSatellitePosition) {
+			case LOWER_LEFT:
+				return new Point(0, y);
+			case UPPER_LEFT:
+				return new Point(0, 0);
+			case UPPER_RIGHT:
+				return new Point(x, 0);
+			case LOWER_RIGHT:
+			default:
+				return new Point(x, y);
+		}
 	}
 
 	private int getNewBoundsSize(Dimension parentBounds, Dimension satelliteBounds) {
@@ -966,7 +1028,8 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 
 	private class MessagePaintable implements Paintable {
 
-		private final Color backgroundColor = new Color(134, 180, 238);
+		private static final String FONT_ID = "font.graph.component.message";
+		private final Color backgroundColor = new GColor("color.bg.visualgraph.message");
 		private String message = null;
 
 		@Override
@@ -981,7 +1044,7 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 			// this composite softens the text and color of the message
 			g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SrcOver.getRule(), .60f));
 
-			Font font = new Font("Sanf Serif", Font.BOLD | Font.ITALIC, 18);
+			Font font = Gui.getFont(FONT_ID);
 			g.setFont(font);
 
 			Rectangle stringBounds =
@@ -1009,13 +1072,10 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 			g2.setPaint(bottomToTopGradiant);
 			g2.fillRect(backgroundX, upperY, backgroundWidth, backgroundHeight);
 
-			g2.setPaint(Color.BLACK);
+			g2.setPaint(Palette.BLACK);
 			int textX =
 				startX + (isGraphViewStale() ? staleGraphViewPanel.getBounds().width + 5 : 0);
 			g2.drawString(message, textX, startY);
-
-//			ImageIcon icon = ResourceManager.loadImage("images/dragon_head.png");
-//			g2.drawImage(icon.getImage(), backgroundX, upperY, null);
 
 			g2.setComposite(originalComposite);
 		}
@@ -1226,4 +1286,5 @@ public class GraphComponent<V extends VisualVertex, E extends VisualEdge<V>, G e
 			// stub
 		}
 	}
+
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,9 +16,10 @@
 package ghidra.formats.gfilesystem;
 
 import java.io.*;
-import java.util.List;
+import java.util.*;
 
 import ghidra.app.util.bin.ByteProvider;
+import ghidra.framework.Application;
 import ghidra.util.SystemUtilities;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.CryptoException;
@@ -137,7 +138,7 @@ public abstract class GFileSystemBase implements GFileSystem {
 	protected void debug(byte[] bytes, String fileName) {
 		try {
 			if (SystemUtilities.isInDevelopmentMode()) {
-				File file = File.createTempFile(fileName, ".ghidra.tmp");
+				File file = Application.createTempFile(fileName, ".ghidra.tmp");
 				OutputStream out = new FileOutputStream(file);
 				try {
 					out.write(bytes);
@@ -151,12 +152,29 @@ public abstract class GFileSystemBase implements GFileSystem {
 		}
 	}
 
+	/**
+	 * Override to specify a file-system specific name comparator.
+	 * 
+	 * @return {@link Comparator} such as {@link String#compareTo(String)} or 
+	 * {@link String#compareToIgnoreCase(String)}
+	 */
+	protected Comparator<String> getFilenameComparator() {
+		return String::compareTo;
+	}
+
 	@Override
 	public GFile lookup(String path) throws IOException {
+		return lookup(path, getFilenameComparator());
+	}
+
+	@Override
+	public GFile lookup(String path, Comparator<String> nameComp) throws IOException {
 		if (path == null || path.equals("/")) {
 			return root;
 		}
-		GFile current = null;
+		nameComp = Objects.requireNonNullElseGet(nameComp, this::getFilenameComparator);
+
+		GFile current = root;
 		String[] parts = path.split("/");
 		partloop: for (String part : parts) {
 			if (part.isEmpty()) {
@@ -164,7 +182,7 @@ public abstract class GFileSystemBase implements GFileSystem {
 			}
 			List<GFile> listing = getListing(current);
 			for (GFile gf : listing) {
-				if (part.equals(gf.getName())) {
+				if (nameComp.compare(part, gf.getName()) == 0) {
 					current = gf;
 					continue partloop;
 				}

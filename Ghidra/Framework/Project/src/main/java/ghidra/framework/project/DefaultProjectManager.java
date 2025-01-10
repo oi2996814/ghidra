@@ -28,6 +28,7 @@ import ghidra.framework.GenericRunInfo;
 import ghidra.framework.ToolUtils;
 import ghidra.framework.client.*;
 import ghidra.framework.data.TransientDataManager;
+import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.*;
 import ghidra.framework.preferences.Preferences;
 import ghidra.framework.protocol.ghidra.GhidraURL;
@@ -69,7 +70,7 @@ public class DefaultProjectManager implements ProjectManager {
 	protected DefaultProjectManager() {
 		recentlyOpenedProjectsList = new ArrayList<>();
 		recentlyViewedProjectsList = new ArrayList<>();
-		createUserToolChest();
+		userToolChest = createUserToolChest();
 		// get locator for last opened project
 		lastOpenedProject = getLastOpenedProject();
 		// read known projects from ghidra preferences...
@@ -111,6 +112,8 @@ public class DefaultProjectManager implements ProjectManager {
 			lastOpenedProject = projectLocator;
 			updatePreferences();
 		}
+
+		AppInfo.setActiveProject(currentProject);
 		return currentProject;
 	}
 
@@ -138,6 +141,7 @@ public class DefaultProjectManager implements ProjectManager {
 
 		try {
 			currentProject = new DefaultProject(this, projectLocator, resetOwner);
+			AppInfo.setActiveProject(currentProject);
 			if (doRestore) {
 				currentProject.restore();
 			}
@@ -166,6 +170,7 @@ public class DefaultProjectManager implements ProjectManager {
 				}
 			}
 		}
+		AppInfo.setActiveProject(null);
 		return null;
 	}
 
@@ -192,7 +197,7 @@ public class DefaultProjectManager implements ProjectManager {
 	 */
 	@Override
 	public ProjectLocator getLastOpenedProject() {
-		String projectPath = Preferences.getProperty(LAST_OPENED_PROJECT);
+		String projectPath = Preferences.getProperty(LAST_OPENED_PROJECT, null, true);
 		if (projectPath == null || projectPath.trim().length() == 0) {
 			return null;
 		}
@@ -479,17 +484,17 @@ public class DefaultProjectManager implements ProjectManager {
 		toolChest.replaceToolTemplate(template);
 	}
 
-	private void createUserToolChest() {
-
-		userToolChest = new ToolChestImpl();
+	protected ToolChest createUserToolChest() {
+		ToolChest toolChest = new ToolChestImpl();
 		try {
-			if (userToolChest.getToolCount() == 0) {
-				installTools(userToolChest);
+			if (toolChest.getToolCount() == 0) {
+				installTools(toolChest);
 			}
 		}
 		catch (Exception e) {
 			Msg.showError(LOG, null, "Tool Chest Error", "Failed to create tool chest.", e);
 		}
+		return toolChest;
 	}
 
 	/**

@@ -36,17 +36,20 @@ public class RemoteBufferFileImpl extends UnicastRemoteObject
 		implements RemoteBufferFileHandle, Unreferenced {
 
 	// Tracks open handles by user repository connection: maps repository handle instance to list of open file handles
-	private static HashMap<RemoteRepositoryHandle, List<RemoteBufferFileImpl>> instanceOwnerMap =
+	private static final HashMap<RemoteRepositoryHandle, List<RemoteBufferFileImpl>> instanceOwnerMap =
 		new HashMap<>();
 
 	// Tracks open handles by path: maps "repo-name:<file-path>" to list of open buffer file handles
-	private static HashMap<String, List<RemoteBufferFileImpl>> instancePathMap = new HashMap<>();
+	private static final HashMap<String, List<RemoteBufferFileImpl>> instancePathMap =
+		new HashMap<>();
 
 	protected final RepositoryHandleImpl owner;
 	protected final String associatedFilePath;
 
-	private LocalBufferFile bufferFile;
-	private String clientHost;
+	private final String clientHost;
+	private final LocalBufferFile bufferFile;
+
+	private boolean disposed = false;
 
 	/**
 	 * Construct a remote wrapper for a buffer file.
@@ -67,7 +70,6 @@ public class RemoteBufferFileImpl extends UnicastRemoteObject
 		}
 		this.clientHost = RepositoryManager.getRMIClient();
 		addInstance(this);
-//System.out.println("Constructed remote buffer file (" + instanceID + "): " + bufferFile);
 	}
 
 	private static String getFilePathKey(RemoteBufferFileImpl rbf) {
@@ -94,7 +96,6 @@ public class RemoteBufferFileImpl extends UnicastRemoteObject
 			instancePathMap.put(filePathKey, list);
 		}
 		list.add(rbf);
-		rbf.owner.fireOpenFileCountChanged();
 	}
 
 	private static synchronized void removeOwnerInstance(RemoteBufferFileImpl rbf) {
@@ -103,7 +104,6 @@ public class RemoteBufferFileImpl extends UnicastRemoteObject
 			if (list.isEmpty()) {
 				instanceOwnerMap.remove(rbf.owner);
 			}
-			rbf.owner.fireOpenFileCountChanged();
 		}
 	}
 
@@ -115,6 +115,29 @@ public class RemoteBufferFileImpl extends UnicastRemoteObject
 				instancePathMap.remove(filePathKey);
 			}
 		}
+	}
+
+	/**
+	 * Dispose and unexport all RemoteBufferFileImpl instances associated with the 
+	 * specified owner.
+	 * @param owner
+	 * @return true if one or more buffer files were disposed.
+	 */
+	public static synchronized boolean dispose(Object owner) {
+		boolean found = false;
+		List<RemoteBufferFileImpl> list = instanceOwnerMap.remove(owner);
+		if (list != null) {
+			for (RemoteBufferFileImpl rbf : list) {
+				found = true;
+				rbf.dispose();
+			}
+		}
+		if (found) {
+			// If files were found, may need to repeat since pre-save
+			// files may have been constructed during dispose
+			dispose(owner);
+		}
+		return found;
 	}
 
 	/**
@@ -172,44 +195,25 @@ public class RemoteBufferFileImpl extends UnicastRemoteObject
 	}
 
 	/**
-	 * Dispose and unexport all RemoteBufferFileImpl instances associated with the 
-	 * specified owner.
-	 * @param owner
-	 * @return true if one or more buffer files were disposed.
-	 */
-	public static synchronized boolean dispose(Object owner) {
-		boolean found = false;
-		List<RemoteBufferFileImpl> list = instanceOwnerMap.remove(owner);
-		if (list != null) {
-			for (RemoteBufferFileImpl rbf : list) {
-				found = true;
-				rbf.dispose();
-			}
-		}
-		if (found) {
-			// If files were found, may need to repeat since pre-save
-			// files may have been constructed during dispose
-			dispose(owner);
-		}
-		return found;
-	}
-
-	/**
 	 * Dispose associated buffer file and unexport this instance.
 	 */
 	@Override
 	public void dispose() {
-		if (bufferFile != null) {
-			try {
-				unexportObject(this, true);
+
+		removeOwnerInstance(this);
+		removePathInstance(this);
+
+		synchronized (this) {
+			if (!disposed) {
+				try {
+					unexportObject(this, true);
+				}
+				catch (NoSuchObjectException e) {
+					// ignore
+				}
+				bufferFile.dispose();
+				disposed = true;
 			}
-			catch (NoSuchObjectException e) {
-				// ignore
-			}
-			removeOwnerInstance(this);
-			removePathInstance(this);
-			bufferFile.dispose();
-			bufferFile = null;
 		}
 	}
 

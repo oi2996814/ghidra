@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -51,24 +51,25 @@ class CompositeDBAdapterV2V4 extends CompositeDBAdapter implements RecordTransla
 	static final int V2V4_COMPOSITE_PACK_COL = 10; // renamed from Internal Alignment
 	static final int V2V4_COMPOSITE_MIN_ALIGN_COL = 11;  // renamed from External Alignment
 
-	static final Schema V2V4_COMPOSITE_SCHEMA = new Schema(VERSION, "Data Type ID",
-		new Field[] { StringField.INSTANCE, StringField.INSTANCE, BooleanField.INSTANCE,
-			LongField.INSTANCE, IntField.INSTANCE, IntField.INSTANCE, LongField.INSTANCE,
-			LongField.INSTANCE, LongField.INSTANCE, LongField.INSTANCE, IntField.INSTANCE,
-			IntField.INSTANCE },
-		new String[] { "Name", "Comment", "Is Union", "Category ID", "Length",
-			"Number Of Components", "Source Archive ID", "Source Data Type ID", "Source Sync Time",
-			"Last Change Time", "Pack", "MinAlign" });
+// DO NOT REMOVE - this documents the schema used in versions 2 thru 4.
+//	static final Schema V2V4_COMPOSITE_SCHEMA = new Schema(VERSION, "Data Type ID",
+//		new Field[] { StringField.INSTANCE, StringField.INSTANCE, BooleanField.INSTANCE,
+//			LongField.INSTANCE, IntField.INSTANCE, IntField.INSTANCE, LongField.INSTANCE,
+//			LongField.INSTANCE, LongField.INSTANCE, LongField.INSTANCE, IntField.INSTANCE,
+//			IntField.INSTANCE },
+//		new String[] { "Name", "Comment", "Is Union", "Category ID", "Length",
+//			"Number Of Components", "Source Archive ID", "Source Data Type ID", "Source Sync Time",
+//			"Last Change Time", "Pack", "MinAlign" });
 
 	private Table compositeTable;
 
 	/**
 	 * Gets a read-only adapter for the Composite database table.
 	 * @param handle handle to the database containing the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 */
-	public CompositeDBAdapterV2V4(DBHandle handle) throws VersionException {
+	CompositeDBAdapterV2V4(DBHandle handle) throws VersionException {
 		compositeTable = handle.getTable(COMPOSITE_TABLE_NAME);
 		if (compositeTable == null) {
 			throw new VersionException("Missing Table: " + COMPOSITE_TABLE_NAME);
@@ -90,12 +91,12 @@ class CompositeDBAdapterV2V4 extends CompositeDBAdapter implements RecordTransla
 	}
 
 	@Override
-	int getRecordCount() {
+	public int getRecordCount() {
 		return compositeTable.getRecordCount();
 	}
 
 	@Override
-	public DBRecord createRecord(String name, String comments, boolean isUnion, long categoryID,
+	DBRecord createRecord(String name, String comments, boolean isUnion, long categoryID,
 			int length, int computedAlignment, long sourceArchiveID, long sourceDataTypeID,
 			long lastChangeTime, int packValue, int minAlignment) throws IOException {
 		throw new UnsupportedOperationException("Not allowed to update prior version #" + VERSION +
@@ -103,7 +104,7 @@ class CompositeDBAdapterV2V4 extends CompositeDBAdapter implements RecordTransla
 	}
 
 	@Override
-	public DBRecord getRecord(long dataTypeID) throws IOException {
+	DBRecord getRecord(long dataTypeID) throws IOException {
 		return translateRecord(compositeTable.getRecord(dataTypeID));
 	}
 
@@ -113,12 +114,12 @@ class CompositeDBAdapterV2V4 extends CompositeDBAdapter implements RecordTransla
 	}
 
 	@Override
-	public void updateRecord(DBRecord record, boolean setLastChangeTime) throws IOException {
+	void updateRecord(DBRecord record, boolean setLastChangeTime) throws IOException {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean removeRecord(long compositeID) throws IOException {
+	boolean removeRecord(long compositeID) throws IOException {
 		throw new UnsupportedOperationException("Not allowed to update prior version #" + VERSION +
 			" of " + COMPOSITE_TABLE_NAME + " table.");
 	}
@@ -129,7 +130,7 @@ class CompositeDBAdapterV2V4 extends CompositeDBAdapter implements RecordTransla
 	}
 
 	@Override
-	public Field[] getRecordIdsInCategory(long categoryID) throws IOException {
+	Field[] getRecordIdsInCategory(long categoryID) throws IOException {
 		return compositeTable.findRecords(new LongField(categoryID),
 			CompositeDBAdapter.COMPOSITE_CAT_COL);
 	}
@@ -140,9 +141,6 @@ class CompositeDBAdapterV2V4 extends CompositeDBAdapter implements RecordTransla
 			V2V4_COMPOSITE_SOURCE_ARCHIVE_ID_COL);
 	}
 
-	/* (non-Javadoc)
-	 * @see db.RecordTranslator#translateRecord(db.Record)
-	 */
 	@Override
 	public DBRecord translateRecord(DBRecord oldRec) {
 		if (oldRec == null) {

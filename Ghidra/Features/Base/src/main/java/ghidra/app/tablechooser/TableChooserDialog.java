@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,19 +25,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
 import javax.swing.table.TableCellRenderer;
 
-import docking.ActionContext;
 import docking.DialogComponentProvider;
 import docking.action.DockingAction;
 import docking.widgets.table.*;
 import docking.widgets.table.threaded.ThreadedTableModel;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.nav.NavigatableRemovalListener;
 import ghidra.app.services.GoToService;
 import ghidra.app.util.HelpTopics;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
-import ghidra.program.util.ProgramLocation;
-import ghidra.program.util.ProgramSelection;
 import ghidra.util.HelpLocation;
 import ghidra.util.Swing;
 import ghidra.util.datastruct.WeakDataStructureFactory;
@@ -107,11 +106,14 @@ public class TableChooserDialog extends DialogComponentProvider
 		TableChooserDialogPanel tablePanel = new TableChooserDialogPanel(model);
 
 		table = tablePanel.getTable();
+		table.setAccessibleNamePrefix("Chooser");
+		table.setToolTipText("Table of choices for " + getTitle());
+
 		GoToService goToService = tool.getService(GoToService.class);
 		if (goToService != null) {
 			navigatable = navigatable == null ? goToService.getDefaultNavigatable() : navigatable;
 			navigatable.addNavigatableListener(this);
-			table.installNavigation(goToService, navigatable);
+			table.installNavigation(tool, navigatable);
 		}
 		table.getSelectionModel()
 				.addListSelectionListener(e -> setOkEnabled(table.getSelectedRowCount() > 0));
@@ -150,6 +152,16 @@ public class TableChooserDialog extends DialogComponentProvider
 		model.removeObject(rowObject);
 	}
 
+	/**
+	 * Returns true if the given object is still in the dialog.  Clients can use this method to see
+	 * if the user has already processed the given item.
+	 * @param rowObject the row object
+	 * @return true if the object is still in the dialog
+	 */
+	public boolean contains(AddressableRowObject rowObject) {
+		return model.containsObject(rowObject);
+	}
+
 	private void createTableModel() {
 
 		// note: the task monitor is installed later when this model is added to the threaded panel
@@ -159,19 +171,7 @@ public class TableChooserDialog extends DialogComponentProvider
 	private void createActions() {
 		String owner = getClass().getSimpleName();
 
-		DockingAction selectAction = new MakeProgramSelectionAction(owner, table) {
-			@Override
-			protected ProgramSelection makeSelection(ActionContext context) {
-				ProgramSelection selection = table.getProgramSelection();
-				if (navigatable != null) {
-					navigatable.goTo(program,
-						new ProgramLocation(program, selection.getMinAddress()));
-					navigatable.setSelection(selection);
-					navigatable.requestFocus();
-				}
-				return selection;
-			}
-		};
+		DockingAction selectAction = new MakeProgramSelectionAction(navigatable, owner, table);
 
 		DockingAction selectionNavigationAction = new SelectionNavigationAction(owner, table);
 		selectionNavigationAction
@@ -242,6 +242,9 @@ public class TableChooserDialog extends DialogComponentProvider
 
 		try {
 			List<AddressableRowObject> deleted = doProcessRowsInTransaction(rowObjects, monitor);
+			if (monitor.isCancelled()) {
+				return;
+			}
 
 			for (AddressableRowObject rowObject : deleted) {
 				model.removeObject(rowObject);
@@ -259,6 +262,10 @@ public class TableChooserDialog extends DialogComponentProvider
 			TaskMonitor monitor) {
 
 		List<AddressableRowObject> deleted = new ArrayList<>();
+		if (executor.executeInBulk(rowObjects, deleted, monitor)) {
+			return deleted;
+		}
+
 		for (AddressableRowObject rowObject : rowObjects) {
 			if (monitor.isCancelled()) {
 				break;
@@ -349,6 +356,10 @@ public class TableChooserDialog extends DialogComponentProvider
 		setStatusText(message);
 	}
 
+	public GhidraTable getTable() {
+		return table;
+	}
+
 	public int getRowCount() {
 		return model.getRowCount();
 	}
@@ -378,9 +389,11 @@ public class TableChooserDialog extends DialogComponentProvider
 		return rowObjects;
 	}
 
+	@Override
 	public void dispose() {
 		table.dispose();
 		workers.forEach(w -> w.cancel(true));
+		super.dispose();
 	}
 
 //==================================================================================================
@@ -415,30 +428,35 @@ public class TableChooserDialog extends DialogComponentProvider
 
 	private class WrappingCellRenderer extends GhidraTableCellRenderer {
 
-		private Color pendingColor = new Color(192, 192, 192, 75);
+		private Color pendingColor = Palette.LIGHT_GRAY;
 		private TableCellRenderer delegate;
 
 		@Override
 		public Component getTableCellRendererComponent(GTableCellRenderingData data) {
 
-			Component superRenderer;
-			if (delegate instanceof GTableCellRenderer) {
-				superRenderer = super.getTableCellRendererComponent(data);
+			Component renderer;
+			if (delegate == null) {
+				renderer = super.getTableCellRendererComponent(data);
 			}
 			else {
-				superRenderer = super.getTableCellRendererComponent(data.getTable(),
-					data.getValue(), data.isSelected(), data.hasFocus(), data.getRowViewIndex(),
-					data.getColumnViewIndex());
+				if (delegate instanceof GTableCellRenderer) {
+					renderer = ((GTableCellRenderer) delegate).getTableCellRendererComponent(data);
+				}
+				else {
+					renderer = delegate.getTableCellRendererComponent(data.getTable(),
+						data.getValue(), data.isSelected(), data.hasFocus(), data.getRowViewIndex(),
+						data.getColumnViewIndex());
+				}
 			}
 
 			AddressableRowObject ro = (AddressableRowObject) data.getRowObject();
 			if (sharedPending.contains(ro)) {
-				superRenderer.setBackground(pendingColor);
-				superRenderer.setForeground(data.getTable().getSelectionForeground());
-				superRenderer.setForeground(Color.BLACK);
+				renderer.setBackground(pendingColor);
+				renderer.setForeground(data.getTable().getSelectionForeground());
+				renderer.setForeground(Colors.FOREGROUND);
 			}
 
-			return superRenderer;
+			return renderer;
 		}
 
 		void setDelegate(TableCellRenderer delegate) {

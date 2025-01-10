@@ -1,13 +1,12 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,15 +15,12 @@
  */
 package ghidra.app.util.bin.format.pe;
 
-import ghidra.app.util.bin.ByteArrayConverter;
-import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import java.io.IOException;
+
+import ghidra.app.util.bin.*;
 import ghidra.program.model.data.*;
-import ghidra.util.Conv;
 import ghidra.util.DataConverter;
 import ghidra.util.exception.DuplicateNameException;
-
-import java.io.IOException;
 
 /**
  * A class to represent the 
@@ -63,27 +59,13 @@ public class ThunkData implements StructConverter, ByteArrayConverter {
 	private long value;
 	private ImportByName ibn;
 
-	static ThunkData createThunkData(FactoryBundledWithBinaryReader reader, int index,
-			boolean is64bit) throws IOException {
-		ThunkData thunkData = (ThunkData) reader.getFactory().create(ThunkData.class);
-		thunkData.initThunkData(reader, index, is64bit);
-		return thunkData;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public ThunkData() {
-	}
-
-	private void initThunkData(FactoryBundledWithBinaryReader reader, int index, boolean is64bit)
-			throws IOException {
+	ThunkData(BinaryReader reader, int index, boolean is64bit) throws IOException {
 		this.is64bit = is64bit;
 		if (is64bit) {
 			value = reader.readLong(index);
 		}
 		else {
-			value = reader.readInt(index) & Conv.INT_MASK;
+			value = reader.readUnsignedInt(index);
 		}
 	}
 
@@ -117,7 +99,7 @@ public class ThunkData implements StructConverter, ByteArrayConverter {
 	 * @param value the new thunk value
 	 */
 	public void setValue(int value) {
-		this.value = value & Conv.INT_MASK;
+		this.value = Integer.toUnsignedLong(value);
 	}
 
 	/**
@@ -171,9 +153,7 @@ public class ThunkData implements StructConverter, ByteArrayConverter {
 		return ibn;
 	}
 
-	/**
-	 * @see ghidra.app.util.bin.StructConverter#toDataType()
-	 */
+	@Override
 	public DataType toDataType() throws DuplicateNameException {
 		UnionDataType union = new UnionDataType("u1");
 		union.setCategoryPath(new CategoryPath("/PE"));
@@ -191,9 +171,7 @@ public class ThunkData implements StructConverter, ByteArrayConverter {
 		return struct;
 	}
 
-	/**
-	 * @see ghidra.app.util.bin.ByteArrayConverter#toBytes(ghidra.util.DataConverter)
-	 */
+	@Override
 	public byte[] toBytes(DataConverter dc) {
 		if (is64bit) {
 			return dc.getBytes(value);

@@ -17,10 +17,14 @@ package ghidra.program.database;
 
 import java.io.IOException;
 
+import db.DBHandle;
+import db.DBTestUtils;
 import db.buffers.BufferFile;
 import generic.test.AbstractGenericTest;
+import generic.test.AbstractGuiTest;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.framework.data.GhidraFolder;
+import ghidra.framework.data.OpenMode;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.store.*;
 import ghidra.program.model.listing.Program;
@@ -28,6 +32,7 @@ import ghidra.program.model.listing.ProgramChangeSet;
 import ghidra.test.TestEnv;
 import ghidra.util.InvalidNameException;
 import ghidra.util.exception.CancelledException;
+import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -105,7 +110,7 @@ public abstract class AbstractMTFModel {
 		return privateChangeSet;
 	}
 
-	public ProgramChangeSet getResultChangeSet() {
+	public ProgramChangeSet getLatestChangeSet() {
 		return latestChangeSet;
 	}
 
@@ -113,14 +118,14 @@ public abstract class AbstractMTFModel {
 		return env;
 	}
 
-	protected void disableAutoAnalysis(Program p) {
+	protected static void disableAutoAnalysis(Program p) {
 		// Disable all analysis
 		AutoAnalysisManager analysisMgr = AutoAnalysisManager.getAnalysisManager(p);
 		AbstractGenericTest.setInstanceField("isEnabled", analysisMgr, Boolean.FALSE);
 	}
 
-	static DomainFile copyDatabaseDomainFile(DomainFile df, String newName) throws IOException,
-			InvalidNameException, CancelledException {
+	static DomainFile copyDatabaseDomainFile(DomainFile df, String newName)
+			throws IOException, InvalidNameException, CancelledException {
 		FileSystem fileSystem = (FileSystem) AbstractGenericTest.getInstanceField("fileSystem", df);
 
 		GhidraFolder parent = (GhidraFolder) df.getParent();
@@ -129,8 +134,7 @@ public abstract class AbstractMTFModel {
 		BufferFile bufferFile = item.open();
 		try {
 			fileSystem.createDatabase(parent.getPathname(), newName, FileIDFactory.createFileID(),
-				bufferFile, null, item.getContentType(), false, TaskMonitor.DUMMY,
-				null);
+				bufferFile, null, item.getContentType(), false, TaskMonitor.DUMMY, null);
 		}
 		finally {
 			bufferFile.dispose();
@@ -156,7 +160,7 @@ public abstract class AbstractMTFModel {
 		}
 		if (resultProgram != null) {
 			resultProgram.flushEvents();
-			AbstractGenericTest.waitForSwing();
+			AbstractGuiTest.waitForSwing();
 			resultProgram.release(this);
 			resultProgram = null;
 		}
@@ -169,4 +173,24 @@ public abstract class AbstractMTFModel {
 			throws Exception;
 
 	public abstract void initialize(String programName, ProgramModifierListener l) throws Exception;
+
+	/**
+	 * Clone a program to a new instance.  The new instance will be assigned an empty change-set.
+	 * @param prog program to be cloned
+	 * @param consumer new program consumer
+	 * @return new program instance
+	 * @throws IOException if a file IO error occurs
+	 */
+	public static ProgramDB cloneProgram(ProgramDB prog, Object consumer) throws IOException {
+		try {
+			DBHandle newDbh = DBTestUtils.cloneDbHandle(prog.getDBHandle());
+			ProgramDB newProg = new ProgramDB(newDbh, OpenMode.UPDATE, TaskMonitor.DUMMY, consumer);
+			newProg.setChangeSet(new ProgramDBChangeSet(newProg.getAddressMap(), 20));
+			disableAutoAnalysis(newProg);
+			return newProg;
+		}
+		catch (CancelledException | VersionException e) {
+			throw new RuntimeException(e); // unexpected
+		}
+	}
 }

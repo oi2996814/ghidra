@@ -32,6 +32,7 @@ import ghidra.app.plugin.core.decompile.actions.RenameVariableTask;
 import ghidra.framework.options.Options;
 import ghidra.program.database.symbol.CodeSymbol;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressFactory;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.Undefined;
 import ghidra.program.model.listing.*;
@@ -48,29 +49,19 @@ public class HighSymbolTest extends AbstractDecompilerTest {
 	private void renameGlobalVariable(HighSymbol highSymbol, ClangToken tokenAtCursor,
 			String newName) {
 		Address addr = highSymbol.getStorage().getMinAddress();
-		RenameLabelCmd cmd =
-			new RenameLabelCmd(addr, highSymbol.getName(), newName, SourceType.USER_DEFINED);
-
-		modifyProgram(p -> {
-			cmd.applyTo(highSymbol.getProgram());
-		});
+		applyCmd(program,
+			new RenameLabelCmd(addr, highSymbol.getName(), newName, SourceType.USER_DEFINED));
 		waitForDecompiler();
 	}
 
 	private void deleteFunction(String address) {
-		modifyProgram(p -> {
-			Address addr = p.getAddressFactory().getAddress(address);
-			DeleteFunctionCmd deleteCmd = new DeleteFunctionCmd(addr);
-			deleteCmd.applyTo(p);
-		});
+		Address addr = program.getAddressFactory().getAddress(address);
+		applyCmd(program, new DeleteFunctionCmd(addr));
 	}
 
 	private void createFunction(String address) {
-		modifyProgram(p -> {
-			Address addr = p.getAddressFactory().getAddress(address);
-			CreateFunctionCmd createCmd = new CreateFunctionCmd(addr);
-			createCmd.applyTo(p);
-		});
+		Address addr = program.getAddressFactory().getAddress(address);
+		applyCmd(program, new CreateFunctionCmd(addr));
 	}
 
 	private void turnOffAnalysis() {
@@ -82,9 +73,8 @@ public class HighSymbolTest extends AbstractDecompilerTest {
 	}
 
 	private void renameVariable(HighSymbol highSymbol, ClangToken tokenAtCursor, String newName) {
-		RenameVariableTask rename =
-			new RenameVariableTask(provider.getTool(), highSymbol.getProgram(),
-				provider, tokenAtCursor, highSymbol, SourceType.USER_DEFINED);
+		RenameVariableTask rename = new RenameVariableTask(provider.getTool(),
+			highSymbol.getProgram(), provider, tokenAtCursor, highSymbol, SourceType.USER_DEFINED);
 		assertTrue(rename.isValid(newName));
 		modifyProgram(p -> {
 			rename.commit();
@@ -93,8 +83,8 @@ public class HighSymbolTest extends AbstractDecompilerTest {
 	}
 
 	private void isolateVariable(HighSymbol highSymbol, ClangToken tokenAtCursor, String newName) {
-		IsolateVariableTask isolate = new IsolateVariableTask(provider.getTool(), program,
-			provider, tokenAtCursor, highSymbol, SourceType.USER_DEFINED);
+		IsolateVariableTask isolate = new IsolateVariableTask(provider.getTool(), program, provider,
+			tokenAtCursor, highSymbol, SourceType.USER_DEFINED);
 		assertTrue(isolate.isValid(newName));
 		modifyProgram(p -> {
 			isolate.commit();
@@ -103,10 +93,7 @@ public class HighSymbolTest extends AbstractDecompilerTest {
 	}
 
 	private void applyEquate(String equateName, Address addr, long equateValue) {
-		modifyProgram(p -> {
-			SetEquateCmd cmd = new SetEquateCmd(equateName, addr, 0, equateValue);
-			cmd.applyTo(program);
-		});
+		applyCmd(program, new SetEquateCmd(equateName, addr, 0, equateValue));
 	}
 
 	private void renameExisting(HighSymbol highSymbol, ClangToken tokenAtCursor, String newName) {
@@ -223,7 +210,8 @@ public class HighSymbolTest extends AbstractDecompilerTest {
 		assertTrue(token instanceof ClangVariableToken);
 		assertNull(token.getHighVariable());		// No HighVariable associated with the token
 		PcodeOp op = ((ClangVariableToken) token).getPcodeOp();
-		Address addr = HighFunctionDBUtil.getSpacebaseReferenceAddress(provider.getProgram(), op);
+		AddressFactory addrFactory = provider.getProgram().getAddressFactory();
+		Address addr = HighFunctionDBUtil.getSpacebaseReferenceAddress(addrFactory, op);
 		HighFunction highFunction = getHighFunction();
 		LocalSymbolMap lsym = highFunction.getLocalSymbolMap();
 		HighSymbol highSymbol = lsym.findLocal(addr, null);
@@ -323,21 +311,26 @@ public class HighSymbolTest extends AbstractDecompilerTest {
 		turnOffAnalysis();
 		createFunction("10015a6");
 		decompile("10015a6");
+
 		ClangTextField line = getLineContaining("param_4 +");
 		FieldLocation loc = loc(line.getLineNumber(), 23);
 		ClangToken token = line.getToken(loc);
 		assertTrue(token instanceof ClangVariableToken);
+
 		HighSymbol highSymbol = token.getHighVariable().getSymbol();
 		renameVariable(highSymbol, token, "newParam");
 		line = getLineContaining("newParam +");
 		token = line.getToken(loc);
 		assertTrue(token instanceof ClangVariableToken);
+
 		HighVariable variable = token.getHighVariable();
 		assertTrue(variable instanceof HighParam);
 		assertEquals(((HighParam) variable).getSlot(), 3);
+
 		highSymbol = variable.getSymbol();
 		assertTrue(highSymbol.isNameLocked());
 		assertFalse(highSymbol.isTypeLocked());
+
 		Function function = highSymbol.getHighFunction().getFunction();
 		Parameter[] parameters = function.getParameters();
 		assertEquals(parameters.length, 4);

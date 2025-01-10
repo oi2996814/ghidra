@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -43,7 +43,6 @@ public class PdbAddressManager {
 	static final Address BAD_ADDRESS = Address.NO_ADDRESS;
 
 	//==============================================================================================
-	private Map<Integer, Long> realAddressesBySection;
 	private List<SegmentMapDescription> segmentMapList;
 	private List<ImageSectionHeader> imageSectionHeaders;
 	private SortedMap<Long, Long> omapFromSource;
@@ -66,34 +65,56 @@ public class PdbAddressManager {
 
 	private Map<Address, Address> remapAddressByAddress;
 
-	private PdbApplicator applicator;
+	private DefaultPdbApplicator applicator;
 	private Address imageBase;
 
+	private PdbAddressCalculator addressCalculator;
+
+	private boolean isInitialized;
 	//==============================================================================================
 	// API
 	//==============================================================================================
+
+	public PdbAddressManager() {
+		isInitialized = false;
+	}
+
 	/**
 	 * Manager
-	 * @param applicator {@link PdbApplicator} for which this class is working.
-	 * @param imageBase Address from which all other addresses are based.
+	 * @param applicatorArg {@link DefaultPdbApplicator} for which this class is working.
+	 * @param imageBaseArg Address from which all other addresses are based.
 	 * @throws PdbException If Program is null;
+	 * @throws CancelledException upon user cancellation
 	 */
-	PdbAddressManager(PdbApplicator applicator, Address imageBase) throws PdbException {
-		Objects.requireNonNull(applicator, "applicator may not be null");
-		Objects.requireNonNull(imageBase, "imageBase may not be null");
-		this.applicator = applicator;
-		this.imageBase = imageBase;
-		realAddressesBySection = new HashMap<>();
+	void initialize(DefaultPdbApplicator applicatorArg, Address imageBaseArg)
+			throws PdbException, CancelledException {
+		Objects.requireNonNull(applicatorArg, "applicator may not be null");
+		Objects.requireNonNull(imageBaseArg, "imageBase may not be null");
+		this.applicator = applicatorArg;
+		this.imageBase = imageBaseArg;
 		memoryGroupRefinement = new ArrayList<>();
 		memorySectionRefinement = new ArrayList<>();
-		// TODO allSegmentInfo might go away if we use ImageSectionHeader. Under investigation.
-//		allSegmentsInfo = new ArrayList<>();
+
 		addressByPreExistingSymbolName = new HashMap<>();
 		primarySymbolByAddress = new HashMap<>();
+		addressCalculator = PdbAddressCalculator.chooseAddressCalculator(applicator, imageBase);
+		if (addressCalculator == null) {
+			throw new PdbException("PDB: Could not create an Address Calculator");
+		}
+
 		determineMemoryBlocks();
 //		determineMemoryBlocks_orig();
 		mapPreExistingSymbols();
 		createAddressRemap();
+		isInitialized = true;
+	}
+
+	/**
+	 * Returns {@code true} if already initialized
+	 * @return {@code true}" if initialized
+	 */
+	boolean isInitialized() {
+		return isInitialized;
 	}
 
 	/**
@@ -146,6 +167,19 @@ public class PdbAddressManager {
 	 * {@code Address.EXTERNAL_ADDRESS} if the address is external to the program.
 	 */
 	Address getRawAddress(int segment, long offset) {
+//		return getRawAddress_orig(segment, offset);
+		return addressCalculator.getAddress(segment, offset);
+	}
+
+	/**
+	 * Returns the Address for the given section and offset.  Will attempt to map the address
+	 * to a new address if the {@link PdbApplicatorOptions}
+	 * @param segment The segment
+	 * @param offset The offset
+	 * @return The Address, which can be {@code Address.NO_ADDRESS} if invalid or
+	 * {@code Address.EXTERNAL_ADDRESS} if the address is external to the program.
+	 */
+	private Address getRawAddress_orig(int segment, long offset) {
 		if (segment < 0) {
 			return BAD_ADDRESS;
 		}
@@ -240,15 +274,6 @@ public class PdbAddressManager {
 	}
 
 	/**
-	 * Method for callee to set the real address for the section.
-	 * @param sectionNum the section number
-	 * @param realAddress The Address
-	 */
-	void putRealAddressesBySection(int sectionNum, long realAddress) {
-		realAddressesBySection.put(sectionNum, realAddress);
-	}
-
-	/**
 	 * Method for callee to add a Memory Group symbol to the Memory Group list.
 	 * @param symbol the symbol.
 	 */
@@ -326,11 +351,19 @@ public class PdbAddressManager {
 //		}
 //	}
 
-	private void determineMemoryBlocks() {
-		PdbDebugInfo dbi = applicator.getPdb().getDebugInfo();
-		segmentMapList = dbi.getSegmentMapList();
-		if (dbi instanceof PdbNewDebugInfo) {
-			DebugData debugData = ((PdbNewDebugInfo) dbi).getDebugData();
+	/**
+	 * Determines memory blocks
+	 * @throws CancelledException upon user cancellation
+	 */
+	private void determineMemoryBlocks() throws CancelledException {
+		AbstractPdb pdb = applicator.getPdb();
+		PdbDebugInfo debugInfo = pdb.getDebugInfo();
+		if (debugInfo == null) {
+			return;
+		}
+		segmentMapList = debugInfo.getSegmentMapList();
+		if (debugInfo instanceof PdbNewDebugInfo) {
+			DebugData debugData = ((PdbNewDebugInfo) debugInfo).getDebugData();
 			imageSectionHeaders = debugData.getImageSectionHeadersOrig();
 			if (imageSectionHeaders != null) {
 				omapFromSource = debugData.getOmapFromSource();
@@ -439,7 +472,7 @@ public class PdbAddressManager {
 		// TODO: should we perform refinement of program memory blocks?
 		PdbLog.message("\nMemorySectionRefinement");
 		for (PeCoffSectionMsSymbol sym : memorySectionRefinement) {
-			applicator.checkCanceled();
+			applicator.checkCancelled();
 			String name = sym.getName();
 			int section = sym.getSectionNumber();
 			int relativeVirtualAddress = sym.getRva();
@@ -470,7 +503,7 @@ public class PdbAddressManager {
 		// TODO: should we perform refinement of program memory blocks?
 		PdbLog.message("\nMemoryGroupRefinement");
 		for (PeCoffGroupMsSymbol sym : memoryGroupRefinement) {
-			applicator.checkCanceled();
+			applicator.checkCancelled();
 			String name = sym.getName();
 			int segment = sym.getSegment();
 			long offset = sym.getOffset();
@@ -504,6 +537,10 @@ public class PdbAddressManager {
 //		pdb.getDebugInfo().getDebugData().getImageSectionHeader();
 
 		AbstractPdb pdb = applicator.getPdb();
+		PdbDebugInfo debugInfo = pdb.getDebugInfo();
+		if (debugInfo == null) {
+			return;
+		}
 		Program program = applicator.getProgram();
 		if (program == null) {
 			return;
@@ -511,7 +548,7 @@ public class PdbAddressManager {
 
 		Memory mem = program.getMemory();
 		MemoryBlock[] blocks = mem.getBlocks();
-		List<SegmentMapDescription> segmentMapList = pdb.getDebugInfo().getSegmentMapList();
+		List<SegmentMapDescription> segmentMapList = debugInfo.getSegmentMapList();
 		/**
 		 * Program has additional "Headers" block set up by the {@link PeLoader}.
 		 */
@@ -562,51 +599,6 @@ public class PdbAddressManager {
 			// Problem... TODO: didn't both end iterations together
 			throw new PdbException("Memory block reconciliation failure--remaining data");
 		}
-	}
-
-	//==============================================================================================
-	// TODO: This is not complete... It was a research thought, which might get looked at in the
-	// future.
-	@SuppressWarnings("unused") // for method not being called.
-	private boolean garnerSectionSegmentInformation() throws PdbException {
-		AbstractPdb pdb = applicator.getPdb();
-		if (pdb.getDebugInfo() == null) {
-			return false;
-		}
-
-//		ImageSectionHeader imageSectionHeader =
-//		pdb.getDebugInfo().getDebugData().getImageSectionHeader();
-
-		int num = 1;
-		for (AbstractModuleInformation module : pdb.getDebugInfo().getModuleInformationList()) {
-			if ("* Linker *".equals(module.getModuleName())) {
-				List<AbstractMsSymbol> linkerSymbolList =
-					applicator.getSymbolGroupForModule(num).getSymbols();
-				for (AbstractMsSymbol symbol : linkerSymbolList) {
-					if (symbol instanceof PeCoffSectionMsSymbol) {
-						PeCoffSectionMsSymbol section = (PeCoffSectionMsSymbol) symbol;
-						int sectionNum = section.getSectionNumber();
-						long realAddress = section.getRva();
-						section.getLength();
-						section.getCharacteristics();
-						section.getAlign();
-						section.getName();
-						realAddressesBySection.put(sectionNum, realAddress);
-					}
-					if (symbol instanceof PeCoffGroupMsSymbol) {
-						PeCoffGroupMsSymbol group = (PeCoffGroupMsSymbol) symbol;
-						group.getName();
-						group.getSegment();
-						group.getLength();
-						group.getOffset();
-						group.getCharacteristics();
-					}
-				}
-				return true;
-			}
-			num++;
-		}
-		return false;
 	}
 
 }

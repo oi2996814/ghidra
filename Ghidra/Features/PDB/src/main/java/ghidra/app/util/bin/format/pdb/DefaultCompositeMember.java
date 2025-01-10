@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package ghidra.app.util.bin.format.pdb;
 
 import java.util.*;
+import java.util.Map.Entry;
 import java.util.function.Consumer;
 
 import ghidra.program.model.data.*;
@@ -26,18 +27,20 @@ import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * <code>CompositeMember</code> provides the ability to process PDB data-type records and 
- * incrementally build-up composite structure and union data-types from a flattened offset-based 
- * list of members which may include embedded anonymous composite members.  Composite members 
+ * <code>CompositeMember</code> provides the ability to process PDB data-type records and
+ * incrementally build-up composite structure and union data-types from a flattened offset-based
+ * list of members which may include embedded anonymous composite members.  Composite members
  * correspond to either hard predefined data-types, or structure/union containers whose members
- * are added and refined incrementally.  
+ * are added and refined incrementally.
  * <p>
- * Container members are characterized by a null data-type name, zero length, and will be 
- * identified as either a structure or union. 
+ * Container members are characterized by a null data-type name, zero length, and will be
+ * identified as either a structure or union.
  */
 public class DefaultCompositeMember extends CompositeMember {
 
 	private static int MAX_CONSTRUCTION_DEPTH = 20;
+
+	private static final String PADDING_COMPONENT_NAME = "_padding_";
 
 	private DataTypeManager dataTypeManager;
 	private Consumer<String> errorConsumer;
@@ -58,8 +61,10 @@ public class DefaultCompositeMember extends CompositeMember {
 	private BitFieldGroupCompositeMember bitFieldGroup;
 
 	// Structure container data
-	private Map<Integer, CompositeMember> structureMemberOffsetMap;
+	private TreeMap<Integer, CompositeMember> structureMemberOffsetMap;
 	private RangeMap structureMemberRangeMap;
+	private int largestPrimitiveSize;
+	private boolean hasPadding = false;
 
 	// Union container data
 	private List<CompositeMember> unionMemberList;
@@ -135,6 +140,8 @@ public class DefaultCompositeMember extends CompositeMember {
 		dataTypeManager = member.dataTypeManager;
 		structureMemberOffsetMap = member.structureMemberOffsetMap;
 		structureMemberRangeMap = member.structureMemberRangeMap;
+		// allow padding size to use pointer-size and smaller by default
+		largestPrimitiveSize = member.dataTypeManager.getDataOrganization().getPointerSize();
 		unionMemberList = member.unionMemberList;
 	}
 
@@ -143,12 +150,12 @@ public class DefaultCompositeMember extends CompositeMember {
 	 * @param componentOffset member offset within parent
 	 * @param baseDataType bitfield base datatype
 	 * @param bitSize bitfield size in bits
-	 * @param bitOffsetWithinBaseType offset of bitfield within base type 
+	 * @param bitOffsetWithinBaseType offset of bitfield within base type
 	 * @throws InvalidDataTypeException invalid baseDataType for bitfield
 	 */
 	private DefaultCompositeMember(int componentOffset, DataType baseDataType, int bitSize,
 			int bitOffsetWithinBaseType) throws InvalidDataTypeException {
-		memberName = "padding";
+		memberName = PADDING_COMPONENT_NAME;
 		memberDataType = new PdbBitField(baseDataType, bitSize, bitOffsetWithinBaseType);
 		memberIsZeroLengthArray = false;
 		memberOffset = componentOffset;
@@ -220,7 +227,7 @@ public class DefaultCompositeMember extends CompositeMember {
 			parent.memberNameChanged(oldMemberName, memberName);
 		}
 		catch (InvalidNameException | DuplicateNameException e) {
-			// exceptions are unexpected 
+			// exceptions are unexpected
 			throw new AssertException(e);
 		}
 	}
@@ -309,10 +316,12 @@ public class DefaultCompositeMember extends CompositeMember {
 	}
 
 	/**
-	 * Align container composite data type if possible.  
+	 * Align container composite data type if possible.
 	 * @param preferredSize preferred size of composite if known, else <= 0 if unknown
 	 */
 	private void alignComposite(int preferredSize) {
+
+		Composite composite = (Composite) memberDataType;
 
 		// don't attempt to align empty composite - don't complain
 		if (isStructureContainer()) {
@@ -324,7 +333,6 @@ public class DefaultCompositeMember extends CompositeMember {
 			return;
 		}
 
-		Composite composite = (Composite) memberDataType;
 		Composite copy = (Composite) composite.copy(dataTypeManager);
 
 		int pack = 0;
@@ -333,13 +341,35 @@ public class DefaultCompositeMember extends CompositeMember {
 		boolean alignOK = isGoodAlignment(copy, preferredSize);
 		if (alignOK) {
 			composite.setToDefaultPacking();
+			if (hasPadding) {
+				removeUnnecessaryPadding(composite);
+			}
 		}
 		else {
-			pack = 1;
-			copy.setExplicitPackingValue(pack);
-			alignOK = isGoodAlignment(copy, preferredSize);
-			if (alignOK) {
-				composite.setExplicitPackingValue(pack);
+			if (preferredSize > 0 && copy.getLength() != preferredSize) {
+				copy.setToMachineAligned(); // will only impact structure length
+				alignOK = isGoodAlignment(copy, preferredSize);
+				if (alignOK) {
+					composite.setToDefaultPacking();
+					composite.setToMachineAligned();
+					if (hasPadding) {
+						removeUnnecessaryPadding(composite);
+					}
+				}
+				else {
+					copy.setToDefaultAligned(); // restore default alignment
+				}
+			}
+			if (!alignOK) {
+				removeAllPadding(composite); // includes bit-field padding
+				if (!hasPadding) {
+					pack = 1;
+					copy.setExplicitPackingValue(pack);
+					alignOK = isGoodAlignment(copy, preferredSize);
+					if (alignOK) {
+						composite.setExplicitPackingValue(pack);
+					}
+				}
 			}
 		}
 		if (!alignOK && errorConsumer != null && !isClass) { // don't complain about Class structs which always fail
@@ -347,6 +377,64 @@ public class DefaultCompositeMember extends CompositeMember {
 			errorConsumer.accept("PDB " + anonymousStr + memberType +
 				" reconstruction failed to align " + composite.getPathName());
 		}
+	}
+
+	private void removeUnnecessaryPadding(Composite packedComposite) {
+		if (!packedComposite.isPackingEnabled()) {
+			throw new IllegalArgumentException("composite must have packing enabled");
+		}
+		if (!(packedComposite instanceof Structure struct)) {
+			return;
+		}
+		int preferredLength = packedComposite.getLength();
+		DataTypeComponent[] definedComponents = struct.getDefinedComponents();
+		int lastIndex = definedComponents.length - 1;
+		for (int i = 0; i < definedComponents.length; i++) {
+			DataTypeComponent dtc = definedComponents[i];
+			if (!isPaddingComponent(dtc, true)) {
+				continue; // leave bitfield padding intact
+			}
+			int nextComponentOffset = -1;
+			if (i < lastIndex) {
+				nextComponentOffset = definedComponents[i + 1].getOffset();
+			}
+			int ordinal = dtc.getOrdinal();
+
+			// experiment with padding removal and restore if removal impacts structure
+			struct.delete(ordinal);
+
+			if (struct.getLength() != preferredLength || (nextComponentOffset > 0 &&
+				nextComponentOffset != definedComponents[i + 1].getOffset())) {
+				// restore padding component
+				struct.insert(ordinal, dtc.getDataType(), -1, PADDING_COMPONENT_NAME, null);
+			}
+		}
+	}
+
+	private void removeAllPadding(Composite composite) {
+		if (!(composite instanceof Structure struct)) {
+			return;
+		}
+		boolean doDelete = composite.isPackingEnabled();
+		DataTypeComponent[] definedComponents = struct.getDefinedComponents();
+		for (int i = definedComponents.length - 1; i >= 0; i--) {
+			DataTypeComponent dtc = definedComponents[i];
+			if (isPaddingComponent(dtc, false)) {
+				if (doDelete) {
+					struct.delete(dtc.getOrdinal());
+				}
+				else {
+					struct.clearComponent(dtc.getOrdinal());
+				}
+			}
+		}
+	}
+
+	private boolean isPaddingComponent(DataTypeComponent dtc, boolean skipBitFields) {
+		if (skipBitFields && dtc.isBitFieldComponent()) {
+			return false;
+		}
+		return PADDING_COMPONENT_NAME.equals(dtc.getFieldName());
 	}
 
 	private boolean isGoodAlignment(Composite testComposite, int preferredSize) {
@@ -402,6 +490,7 @@ public class DefaultCompositeMember extends CompositeMember {
 	@Override
 	int getLength() {
 		if (memberDataType instanceof BitFieldDataType) {
+			// FIXME: This assumption interferes with pack(1) case for bitfields
 			BitFieldDataType bitfield = (BitFieldDataType) memberDataType;
 			return bitfield.getBaseTypeSize();
 		}
@@ -416,6 +505,9 @@ public class DefaultCompositeMember extends CompositeMember {
 			memberType = MemberType.STRUCTURE;
 			structureMemberOffsetMap = new TreeMap<>();
 			structureMemberRangeMap = new RangeMap(-1);
+			// allow padding size to use pointer-size and smaller by default
+			largestPrimitiveSize = memberDataType.getDataOrganization().getPointerSize();
+			hasPadding = false;
 			unionMemberList = null;
 		}
 		else {
@@ -503,7 +595,7 @@ public class DefaultCompositeMember extends CompositeMember {
 	 * false if unable to resolve member's data-type or other error occurred.
 	 * NOTE: there may be complex hierarchies not yet handled.
 	 * @throws CancelledException if operation cancelled
-	 * @throws DataTypeDependencyException if child's datatype can not be resolved.  
+	 * @throws DataTypeDependencyException if child's datatype can not be resolved.
 	 * It may be possible to skip and continue with next child.
 	 */
 	private boolean addMember(PdbMember child, TaskMonitor monitor)
@@ -602,7 +694,6 @@ public class DefaultCompositeMember extends CompositeMember {
 		}
 
 		DefaultCompositeMember memberCopy = new DefaultCompositeMember(this);
-		memberCopy.memberOffset = 0;
 
 		CategoryPath tempCategoryPath = parent.getDataType().getCategoryPath();
 		String tempName = allocateTemporaryContainerName("struct");
@@ -610,57 +701,18 @@ public class DefaultCompositeMember extends CompositeMember {
 		Structure nestedStructure =
 			new StructureDataType(tempCategoryPath, tempName, 0, dataTypeManager);
 
-		String oldName = memberName;
-		DataType oldDataType = memberDataType;
-
-		DefaultCompositeMember deferredBitFieldMember = null;
-		if (oldDataType instanceof PdbBitField) {
-			PdbBitField bitfieldDt = (PdbBitField) oldDataType;
-			try {
-				int bitOffset = bitfieldDt.getBitOffsetWithinBase();
-				DefaultCompositeMember padding = getPaddingBitField(null, memberCopy);
-				if (padding != null) {
-					deferredBitFieldMember = memberCopy;
-					memberCopy = padding;
-					bitfieldDt = (PdbBitField) memberCopy.memberDataType;
-					bitOffset = bitfieldDt.getBitOffsetWithinBase();
-				}
-				else if (bitOffset < 0) {
-					// TODO: assumes little-endian, add support for big-endian
-					bitOffset = 0;
-				}
-				insertMinimalStructureBitfield(nestedStructure, 0, memberCopy.memberName,
-					bitfieldDt, memberCopy.getMemberComment());
-			}
-			catch (InvalidDataTypeException e) {
-				Msg.error(this, "PDB failed to add bitfield: " + e.getMessage());
-				return false;
-			}
-		}
-		else {
-			nestedStructure.insertAtOffset(0, oldDataType, oldDataType.getLength(), oldName,
-				memberCopy.getMemberComment());
-		}
-
 		memberName = tempName;
+		memberOffset = 0;
 		memberDataType = nestedStructure;
 		memberIsZeroLengthArray = false;
 		memberDataTypeName = null; // signifies a container
 		initializeContainer();
 
-		structureMemberRangeMap.paintRange(0, memberCopy.getLength() - 1, 0);
-		structureMemberOffsetMap.put(0, memberCopy);
-
-		memberCopy.setParent(this);
-
 		if (parent != null) {
-			parent.memberChanged(oldName, this);
+			parent.memberChanged(memberCopy.memberName, this);
 		}
 
-		if (deferredBitFieldMember != null) {
-			return addStructureMember(deferredBitFieldMember);
-		}
-		return true;
+		return addStructureMember(memberCopy);
 	}
 
 	private String getMemberComment() {
@@ -678,6 +730,85 @@ public class DefaultCompositeMember extends CompositeMember {
 			buf.append("warning: zero length array forced to have one element");
 		}
 		return buf.toString();
+	}
+
+	private int getMinimumPackedStructureLength() {
+		if (!isStructureContainer()) {
+			throw new IllegalStateException();
+		}
+
+		Entry<Integer, CompositeMember> lastEntry = structureMemberOffsetMap.lastEntry();
+		if (lastEntry == null) {
+			return 0;
+		}
+
+		int lastOffset = lastEntry.getKey();
+		CompositeMember lastMember = lastEntry.getValue();
+		return lastOffset + lastMember.getLength();
+	}
+
+	/**
+	 * Insert minimal padding into structure prior to the addition of a component such that packing
+	 * will allow component to be placed at intended offset.
+	 * @param nextComponentOffset 
+	 * @param dt 
+	 */
+	private void insertMinimalStructurePadding(int nextComponentOffset, DataType dt) {
+
+		if (!isStructureContainer()) {
+			throw new IllegalStateException();
+		}
+
+		int structLen = getMinimumPackedStructureLength();
+		if (nextComponentOffset <= structLen) {
+			return;
+		}
+
+		if (dt instanceof AbstractIntegerDataType) {
+			largestPrimitiveSize = Math.max(largestPrimitiveSize, dt.getLength());
+		}
+
+		Structure struct = (Structure) memberDataType;
+
+		int fillSpace = nextComponentOffset - structLen;
+		while (fillSpace > 0) {
+
+			int alignedOffset = DataOrganizationImpl.getAlignedOffset(dt.getAlignment(), structLen);
+			if (alignedOffset == nextComponentOffset) {
+				return;
+			}
+
+			DataType paddingDt = getPaddingDataType(nextComponentOffset, structLen);
+			if (paddingDt == null) {
+				return;
+			}
+
+			int paddingOffset =
+				DataOrganizationImpl.getAlignedOffset(paddingDt.getAlignment(), structLen);
+			struct.insertAtOffset(paddingOffset, paddingDt, -1, PADDING_COMPONENT_NAME, null);
+			hasPadding = true;
+
+			structLen = struct.getLength();
+			fillSpace = nextComponentOffset - structLen;
+		}
+	}
+
+	private DataType getPaddingDataType(int nextComponentOffset, int structLen) {
+
+		if (largestPrimitiveSize <= 1) {
+			return new CharDataType(dataTypeManager);
+		}
+
+		for (int paddingSize = largestPrimitiveSize; paddingSize > 1; --paddingSize) {
+			DataType paddingDt =
+				AbstractIntegerDataType.getSignedDataType(paddingSize, dataTypeManager);
+			int alignedOffset =
+				DataOrganizationImpl.getAlignedOffset(paddingDt.getAlignment(), structLen);
+			if ((alignedOffset + paddingSize) <= nextComponentOffset) {
+				return paddingDt;
+			}
+		}
+		return new CharDataType(dataTypeManager);
 	}
 
 	/**
@@ -743,9 +874,6 @@ public class DefaultCompositeMember extends CompositeMember {
 
 		Composite composite = (Composite) memberDataType;
 		DataTypeComponent component = composite.getComponent(composite.getNumComponents() - 1);
-//		if (component.getOffset() != newMember.getOffset()) {
-//			return false; // unexpected
-//		}
 
 		DataType dataType = component.getDataType();
 		if (!(dataType instanceof BitFieldDataType) && !(dataType == DataType.DEFAULT)) {
@@ -813,7 +941,7 @@ public class DefaultCompositeMember extends CompositeMember {
 
 	private boolean addStructureMember(DefaultCompositeMember member) {
 		try {
-			// check for conflict within structure container deferred  
+			// check for conflict within structure container deferred
 			int conflictOffset = structureMemberRangeMap.getValue(member.memberOffset);
 			if (conflictOffset < 0) {
 
@@ -835,10 +963,13 @@ public class DefaultCompositeMember extends CompositeMember {
 						// TODO: assumes little-endian, add support for big-endian
 						bitOffset = 0;
 					}
+					insertMinimalStructurePadding(member.memberOffset,
+						bitfieldDt.getBaseDataType());
 					insertMinimalStructureBitfield((Structure) memberDataType, member.memberOffset,
 						member.getName(), bitfieldDt, member.getMemberComment());
 				}
 				else {
+					insertMinimalStructurePadding(member.memberOffset, member.memberDataType);
 					((Structure) memberDataType).insertAtOffset(member.memberOffset,
 						member.memberDataType, member.getLength(), member.memberName,
 						member.getMemberComment());
@@ -926,7 +1057,8 @@ public class DefaultCompositeMember extends CompositeMember {
 				CompositeMember lastUnionMember = unionMemberList.get(unionMemberList.size() - 1);
 				if (isRelatedBitField(lastUnionMember, member)) {
 					if (lastUnionMember.isSingleBitFieldMember() &&
-						!((DefaultCompositeMember) lastUnionMember).transformIntoStructureContainer()) {
+						!((DefaultCompositeMember) lastUnionMember)
+								.transformIntoStructureContainer()) {
 						return false;
 					}
 					return lastUnionMember.addMember(member);
@@ -946,13 +1078,29 @@ public class DefaultCompositeMember extends CompositeMember {
 			return true;
 		}
 
+		int unionMemberCount = unionMemberList.size();
+		CompositeMember lastUnionMember =
+			unionMemberCount == 0 ? null : unionMemberList.get(unionMemberCount - 1);
+
 		// NOTE: It is assumed that offset will always be ascending and not reach back to union
 		// members before the last one
 
-		CompositeMember lastUnionMember = unionMemberList.get(unionMemberList.size() - 1);
+		if (lastUnionMember == null) {
+			member.parent = this;
+			if (!member.transformIntoStructureContainer()) {
+				return false;
+			}
+			((Union) memberDataType).add(member.memberDataType, member.memberName, null);
+			unionMemberList.add(member);
+			if (parent != null) {
+				parent.sizeChanged(this);
+			}
+			return true;
+		}
 
 		if (lastUnionMember.isStructureContainer() &&
 			member.memberOffset >= lastUnionMember.getOffset()) {
+
 			DefaultCompositeMember struct = (DefaultCompositeMember) lastUnionMember;
 			if (struct.isRelatedBitField(member.memberOffset - lastUnionMember.getOffset(),
 				member)) {
@@ -1086,10 +1234,10 @@ public class DefaultCompositeMember extends CompositeMember {
 
 	/**
 	 * This method facilitates the removal and collection of all siblings of this
-	 * member from its parent container.  Only those siblings whose offset is greater 
-	 * than this member's offset will be included.  The use of this method is necessary when 
-	 * a member sequence has been added to a structure container and it is later decided to 
-	 * push this member and its siblings into a new sub-composite.  Before they can be 
+	 * member from its parent container.  Only those siblings whose offset is greater
+	 * than this member's offset will be included.  The use of this method is necessary when
+	 * a member sequence has been added to a structure container and it is later decided to
+	 * push this member and its siblings into a new sub-composite.  Before they can be
 	 * added to the new container they must be removed from their current container
 	 * using this method.
 	 * @return list of sibling structure members removed from parent
@@ -1145,8 +1293,8 @@ public class DefaultCompositeMember extends CompositeMember {
 	}
 
 	/**
-	 * Buildup an empty composite by applying datatype composite members.  
-	 * Only those children with a kind of "Member" will be processed. 
+	 * Buildup an empty composite by applying datatype composite members.
+	 * Only those children with a kind of "Member" will be processed.
 	 * @param composite empty composite to which members will be added
 	 * @param isClass true if composite corresponds to a Class structure, else false
 	 * @param preferredCompositeSize preferred size of composite, <= 0 indicates unknown
@@ -1166,7 +1314,7 @@ public class DefaultCompositeMember extends CompositeMember {
 			new DefaultCompositeMember(isClass, editComposite, errorConsumer);
 
 		for (PdbMember m : members) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			try {
 				if (!rootMember.addMember(m, monitor)) {
 					return false;
@@ -1195,8 +1343,8 @@ public class DefaultCompositeMember extends CompositeMember {
 	private static enum MemberType {
 
 		//@formatter:off
-		STRUCTURE, 
-		UNION, 
+		STRUCTURE,
+		UNION,
 		MEMBER;
 		//@formatter:on
 

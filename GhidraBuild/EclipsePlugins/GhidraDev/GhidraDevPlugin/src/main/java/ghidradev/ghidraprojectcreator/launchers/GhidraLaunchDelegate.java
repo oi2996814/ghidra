@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -33,7 +33,7 @@ import org.eclipse.swt.widgets.Display;
 import org.eclipse.ui.IPerspectiveDescriptor;
 import org.eclipse.ui.PlatformUI;
 
-import ghidra.launch.JavaConfig;
+import ghidra.launch.AppConfig;
 import ghidradev.EclipseMessageUtils;
 import ghidradev.ghidraprojectcreator.utils.*;
 
@@ -62,14 +62,23 @@ public class GhidraLaunchDelegate extends JavaLaunchDelegate {
 		}
 		IFolder ghidraFolder =
 			javaProject.getProject().getFolder(GhidraProjectUtils.GHIDRA_FOLDER_NAME);
-		JavaConfig javaConfig;
+		AppConfig appConfig;
 		String ghidraInstallPath = ghidraFolder.getLocation().toOSString();
 		try {
-			javaConfig = new JavaConfig(new File(ghidraInstallPath));
+			appConfig = new AppConfig(new File(ghidraInstallPath));
 		}
 		catch (ParseException | IOException e) {
 			EclipseMessageUtils.showErrorDialog(
 				"Failed to launch project \"" + projectName + "\".\n" + e.getMessage());
+			return;
+		}
+
+		// Make sure there isn't a build/ directory present...it messes up the classpath.
+		// The build directory could exist if the user built an extension from the command line
+		// rather than from the Eclipse wizard
+		if (javaProject.getProject().getFolder("build").exists()) {
+			EclipseMessageUtils.showErrorDialog("Failed to launch project \"" + projectName +
+				"\".\nDelete top-level 'build' directory and try again.");
 			return;
 		}
 
@@ -89,8 +98,17 @@ public class GhidraLaunchDelegate extends JavaLaunchDelegate {
 		}
 
 		// Set VM arguments
-		String vmArgs = javaConfig.getLaunchProperties().getVmArgs();
+		String vmArgs = appConfig.getLaunchProperties().getVmArgs();
 		vmArgs += " " + configuration.getAttribute(GhidraLaunchUtils.ATTR_VM_ARGUMENTS, "").trim();
+		vmArgs += " -Dghidra.external.modules=\"%s%s%s\"".formatted(
+			javaProject.getProject().getLocation(), File.pathSeparator,
+			getProjectDependencyDirs(javaProject));
+		File pyDevSrcDir = PyDevUtils.getPyDevSrcDir();
+		if (pyDevSrcDir != null) {
+			vmArgs += " " + "-Declipse.pysrc.dir=\"" + pyDevSrcDir + "\"";
+		}
+		
+		//---------Legacy properties--------------
 		vmArgs += " " + "-Declipse.install.dir=\"" +
 			Platform.getInstallLocation().getURL().getFile() + "\"";
 		vmArgs += " " + "-Declipse.workspace.dir=\"" +
@@ -98,10 +116,8 @@ public class GhidraLaunchDelegate extends JavaLaunchDelegate {
 		vmArgs += " " + "-Declipse.project.dir=\"" + javaProject.getProject().getLocation() + "\"";
 		vmArgs += " " + "-Declipse.project.dependencies=\"" +
 			getProjectDependencyDirs(javaProject) + "\"";
-		File pyDevSrcDir = PyDevUtils.getPyDevSrcDir();
-		if (pyDevSrcDir != null) {
-			vmArgs += " " + "-Declipse.pysrc.dir=\"" + pyDevSrcDir + "\"";
-		}
+		//----------------------------------------
+		
 		wc.setAttribute(IJavaLaunchConfigurationConstants.ATTR_VM_ARGUMENTS, vmArgs);
 
 		// Handle special debug mode tasks
@@ -155,7 +171,7 @@ public class GhidraLaunchDelegate extends JavaLaunchDelegate {
 			}
 
 			// Start PyDev debugger
-			if (PyDevUtils.isSupportedPyDevInstalled()) {
+			if (PyDevUtils.isSupportedJythonPyDevInstalled()) {
 				try {
 					PyDevUtils.startPyDevRemoteDebugger();
 				}

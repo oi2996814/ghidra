@@ -15,17 +15,19 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
+import java.io.IOException;
+import java.io.Writer;
+
 /**
- * This class is the version of {@link AbstractSectionContribution} for Microsoft v6.00 PDB.
+ * This class is the version of {@link SectionContribution} for Microsoft v6.00 PDB.
  */
-public class SectionContribution600 extends AbstractSectionContribution {
+public class SectionContribution600 extends SectionContribution {
 
 	//==============================================================================================
 	// Abstract Methods
 	//==============================================================================================
 	@Override
 	void deserialize(PdbByteReader reader) throws PdbException {
-		//System.out.println(reader.dump(0x200));
 		isect = reader.parseUnsignedShortVal();
 		reader.parseBytes(2); // I think there is padding here.
 		offset = reader.parseInt();
@@ -38,22 +40,15 @@ public class SectionContribution600 extends AbstractSectionContribution {
 	}
 
 	@Override
-	String dumpInternals() {
-		StringBuilder builder = new StringBuilder();
-		builder.append("isect: ");
-		builder.append(isect);
-		builder.append("\noffset: ");
-		builder.append(offset);
-		builder.append("\nlength: ");
-		builder.append(length);
-		builder.append(String.format("\ncharacteristics: 0X%08X", characteristics));
-		builder.append("\nimod: ");
-		builder.append(imod);
-		builder.append("\ndataCrc: ");
-		builder.append(dataCrc);
-		builder.append("\nrelocationCrc: ");
-		builder.append(relocationCrc);
-		return builder.toString();
+	void dumpInternals(Writer writer) throws IOException {
+		writer.write("isect: " + isect);
+		writer.write("\noffset: " + offset);
+		writer.write("\nlength: " + length);
+		writer.write(String.format("\ncharacteristics: 0X%08X", characteristics));
+		writer.write("\nimod: " + imod);
+		writer.write("\ndataCrc: " + dataCrc);
+		writer.write("\nrelocationCrc: " + relocationCrc);
+		writer.write("\n");
 	}
 
 }

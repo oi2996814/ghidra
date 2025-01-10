@@ -19,6 +19,7 @@ import java.awt.Color;
 import java.util.*;
 import java.util.function.Supplier;
 
+import generic.json.Json;
 import ghidra.app.decompiler.*;
 
 /**
@@ -82,8 +83,7 @@ class ClangDecompilerHighlighter implements DecompilerHighlighter {
 
 		clearHighlights();
 
-		ClangLayoutController layoutModel =
-			(ClangLayoutController) decompilerPanel.getLayoutModel();
+		ClangLayoutController layoutModel = decompilerPanel.getLayoutController();
 		ClangTokenGroup root = layoutModel.getRoot();
 
 		Map<ClangToken, Color> highlights = new HashMap<>();
@@ -96,7 +96,7 @@ class ClangDecompilerHighlighter implements DecompilerHighlighter {
 		}
 
 		Supplier<? extends Collection<ClangToken>> tokens = () -> highlights.keySet();
-		ColorProvider colorProvider = t -> highlights.get(t);
+		ColorProvider colorProvider = new MappedTokenColorProvider(highlights);
 		decompilerPanel.addHighlighterHighlights(this, tokens, colorProvider);
 
 		clones.forEach(c -> c.applyHighlights());
@@ -156,6 +156,25 @@ class ClangDecompilerHighlighter implements DecompilerHighlighter {
 
 	@Override
 	public String toString() {
-		return super.toString() + ' ' + id;
+		return Json.toString(this, "matcher", "id");
+	}
+
+	private class MappedTokenColorProvider implements ColorProvider {
+	
+		private Map<ClangToken, Color> highlights;
+	
+		MappedTokenColorProvider(Map<ClangToken, Color> highlights) {
+			this.highlights = highlights;
+		}
+	
+		@Override
+		public Color getColor(ClangToken token) {
+			return highlights.get(token);
+		}
+	
+		@Override
+		public String toString() {
+			return "Token Matcher Color " + matcher.toString();
+		}
 	}
 }

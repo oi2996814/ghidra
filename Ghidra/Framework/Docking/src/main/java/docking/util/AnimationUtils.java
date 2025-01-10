@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,13 +25,15 @@ import org.jdesktop.animation.timing.Animator.RepeatBehavior;
 import org.jdesktop.animation.timing.TimingTargetAdapter;
 import org.jdesktop.animation.timing.interpolation.PropertySetter;
 
+import generic.theme.GIcon;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import generic.util.WindowUtilities;
 import generic.util.image.ImageUtils;
 import ghidra.util.Msg;
 import ghidra.util.bean.GGlassPane;
 import ghidra.util.bean.GGlassPanePainter;
 import ghidra.util.exception.AssertException;
-import resources.ResourceManager;
 
 public class AnimationUtils {
 
@@ -131,24 +133,19 @@ public class AnimationUtils {
 		return driver.animator;
 	}
 
-	public static Animator createPaintingAnimator(Component window, AnimationPainter painter) {
+	public static Animator createPaintingAnimator(Component component, AnimationPainter painter) {
 		if (!animationEnabled) {
 			return null;
 		}
 
-		Component paneComponent = getGlassPane(window);
-		if (paneComponent == null) {
+		GGlassPane glassPane = getGlassPane(component);
+		if (glassPane == null) {
 			// could happen if the given component has not yet been realized
+			Msg.debug(AnimationUtils.class,
+				"Cannot animate without a " + GGlassPane.class.getName() + " installed");
 			return null;
 		}
 
-		if (!(paneComponent instanceof GGlassPane)) {
-			Msg.debug(AnimationUtils.class,
-				"Cannot animate without a " + GGlassPane.class.getName() + " installed");
-			return null; // shouldn't happen
-		}
-
-		GGlassPane glassPane = (GGlassPane) paneComponent;
 		BasicAnimationDriver driver =
 			new BasicAnimationDriver(glassPane, new UserDefinedPainter(painter));
 		return driver.animator;
@@ -392,12 +389,11 @@ public class AnimationUtils {
 
 		@Override
 		public void paint(GGlassPane glassPane, Graphics g) {
-			Color gray = Color.GRAY;
+			Color gray = Palette.GRAY;
 //			double darknessFudge = .95;
 //			double progress = percentComplete * darknessFudge; // emphasis starts at 1			
 //			int alpha = Math.min(255, (int) (255 * progress));
-//			gray = new Color(gray.getRed(), gray.getGreen(), gray.getBlue(), alpha);
-			gray = new Color(gray.getRed(), gray.getGreen(), gray.getBlue());
+//			gray = ColorUtils.fromRgba(gray.getRed(), gray.getGreen(), gray.getBlue(), alpha);
 
 			Graphics2D g2d = (Graphics2D) g;
 			Composite originaComposite = g2d.getComposite();
@@ -594,6 +590,8 @@ public class AnimationUtils {
 			double max = 1.0;
 
 			animator = PropertySetter.createAnimator(2000, this, "percentComplete", start, max);
+
+			painter.setPercentComplete(1D); // set initial value
 
 			animator.setAcceleration(0.2f);
 			animator.setDeceleration(0.8f);
@@ -819,7 +817,7 @@ public class AnimationUtils {
 		@Override
 		public void paint(GGlassPane glassPane, Graphics g) {
 
-			Color background = new Color(218, 232, 250);
+			Color background = Palette.getColor("lightsteelblue");
 			g.setColor(background);
 
 			Rectangle defaultBounds = component.getBounds();
@@ -877,7 +875,7 @@ public class AnimationUtils {
 			double cx = emphasizedBounds.getCenterX();
 			double cy = emphasizedBounds.getCenterY();
 			g2d.rotate(rad, cx, cy);
-			g.setColor(Color.BLACK);
+			g.setColor(Colors.BORDER);
 
 			int iw = emphasizedBounds.width;
 			int ih = emphasizedBounds.height;
@@ -1170,6 +1168,7 @@ public class AnimationUtils {
 
 	private static class DragonImagePainter implements GGlassPanePainter {
 
+		private static final GIcon ICON = new GIcon("icon.dragon.256");
 		private Component component;
 		private double percentComplete = 0.0;
 
@@ -1195,9 +1194,7 @@ public class AnimationUtils {
 				AlphaComposite.getInstance(AlphaComposite.SrcOver.getRule(), alpha);
 			g2d.setComposite(alphaComposite);
 
-			ImageIcon ghidra = ResourceManager.loadImage("images/GhidraIcon256.png");
-			Image ghidraImage = ghidra.getImage();
-
+			Image ghidraImage = ICON.getImageIcon().getImage();
 			Rectangle fullBounds = component.getBounds();
 			fullBounds =
 				SwingUtilities.convertRectangle(component.getParent(), fullBounds, glassPane);

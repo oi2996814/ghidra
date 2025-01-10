@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,11 +21,11 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.Predicate;
 
-import com.google.common.collect.Iterators;
-import com.google.common.collect.Range;
+import org.apache.commons.collections4.IteratorUtils;
 
 import ghidra.program.model.address.*;
 import ghidra.trace.database.map.DBTraceAddressSnapRangePropertyMapTree.TraceAddressSnapRangeQuery;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.TraceAddressSnapRange;
 import ghidra.util.*;
 import ghidra.util.database.spatial.SpatialMap;
@@ -39,13 +39,17 @@ public class DBTraceAddressSnapRangePropertyMapAddressSetView<T> extends Abstrac
 	private final Predicate<? super T> predicate;
 
 	/**
-	 * TODO Document me
+	 * Construct an {@link AddressSetView} based on the given map of entries and predicate.
 	 * 
-	 * The caller must reduce the map if only a certain range is desired.
+	 * <p>
+	 * The spatial map is a 2-dimensional collection of entries, but only the address dimension is
+	 * considered. This set behaves as the union of address ranges for all entries whose values pass
+	 * the predicate. Typically, the caller reduces the map first.
 	 * 
-	 * @param lock
-	 * @param map
-	 * @param predicate
+	 * @param space the address space of the given map
+	 * @param lock a lock to ensure access to the underlying database is synchronized
+	 * @param map the map whose entries to test
+	 * @param predicate the predicate for testing entry values
 	 */
 	public DBTraceAddressSnapRangePropertyMapAddressSetView(AddressSpace space, ReadWriteLock lock,
 			SpatialMap<TraceAddressSnapRange, T, TraceAddressSnapRangeQuery> map,
@@ -104,7 +108,7 @@ public class DBTraceAddressSnapRangePropertyMapAddressSetView<T> extends Abstrac
 	public Address getMinAddress() {
 		try (LockHold hold = LockHold.lock(lock.readLock())) {
 			for (Entry<TraceAddressSnapRange, T> entry : map
-					.reduce(TraceAddressSnapRangeQuery.intersecting(fullSpace, Range.all())
+					.reduce(TraceAddressSnapRangeQuery.intersecting(fullSpace, Lifespan.ALL)
 							.starting(Rectangle2DDirection.LEFTMOST))
 					.orderedEntries()) {
 				if (predicate.test(entry.getValue())) {
@@ -119,7 +123,7 @@ public class DBTraceAddressSnapRangePropertyMapAddressSetView<T> extends Abstrac
 	public Address getMaxAddress() {
 		try (LockHold hold = LockHold.lock(lock.readLock())) {
 			for (Entry<TraceAddressSnapRange, T> entry : map
-					.reduce(TraceAddressSnapRangeQuery.intersecting(fullSpace, Range.all())
+					.reduce(TraceAddressSnapRangeQuery.intersecting(fullSpace, Lifespan.ALL)
 							.starting(Rectangle2DDirection.RIGHTMOST))
 					.orderedEntries()) {
 				if (predicate.test(entry.getValue())) {
@@ -164,15 +168,16 @@ public class DBTraceAddressSnapRangePropertyMapAddressSetView<T> extends Abstrac
 		AddressRange within = forward ? new AddressRangeImpl(start, fullSpace.getMaxAddress())
 				: new AddressRangeImpl(fullSpace.getMinAddress(), start);
 		Iterator<Entry<TraceAddressSnapRange, T>> mapIt = map
-				.reduce(TraceAddressSnapRangeQuery.intersecting(within, Range.all())
+				.reduce(TraceAddressSnapRangeQuery.intersecting(within, Lifespan.ALL)
 						.starting(forward
 								? Rectangle2DDirection.LEFTMOST
 								: Rectangle2DDirection.RIGHTMOST))
 				.orderedEntries()
 				.iterator();
 		Iterator<Entry<TraceAddressSnapRange, T>> fltIt =
-			Iterators.filter(mapIt, e -> predicate.test(e.getValue()));
-		Iterator<AddressRange> rawIt = Iterators.transform(fltIt, e -> e.getKey().getRange());
+			IteratorUtils.filteredIterator(mapIt, e -> predicate.test(e.getValue()));
+		Iterator<AddressRange> rawIt =
+			IteratorUtils.transformedIterator(fltIt, e -> e.getKey().getRange());
 		return new UnionAddressRangeIterator(rawIt, forward);
 	}
 

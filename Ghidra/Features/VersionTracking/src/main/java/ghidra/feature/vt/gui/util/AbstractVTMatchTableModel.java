@@ -5,9 +5,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,6 +27,7 @@ import javax.swing.JLabel;
 
 import docking.widgets.table.GTableCellRenderingData;
 import docking.widgets.table.TableFilter;
+import generic.theme.GColor;
 import ghidra.app.util.SymbolInspector;
 import ghidra.docking.settings.Settings;
 import ghidra.feature.vt.api.impl.VTProgramCorrelatorInfo;
@@ -55,6 +56,8 @@ public abstract class AbstractVTMatchTableModel extends AddressBasedTableModel<V
 
 	protected Comparator<VTMatch> markupStatusColumnComparator = new MarkupStatusColumnComparator();
 	protected VTSession session;
+
+	private static final Color FG_ERROR = new GColor("color.fg.version.tracking.match.table.error");
 
 	private Set<Filter<VTMatch>> allFilters = new HashSet<>();
 	protected final VTController controller;
@@ -584,12 +587,11 @@ public abstract class AbstractVTMatchTableModel extends AddressBasedTableModel<V
 							renderer.setToolTipText(symbol.getName(true));
 						}
 						if (symbolInspector != null) {
-							symbolInspector.setProgram(symbol.getProgram());
 							renderer.setForeground(symbolInspector.getColor(symbol));
 						}
 					}
 					else {
-						renderer.setForeground(Color.RED);
+						renderer.setForeground(FG_ERROR);
 					}
 
 					renderer.setOpaque(true);
@@ -713,12 +715,11 @@ public abstract class AbstractVTMatchTableModel extends AddressBasedTableModel<V
 					Address address = displayableAddress.getAddress();
 					if (!address.isMemoryAddress() && symbolInspector != null) {
 						Symbol s = program.getSymbolTable().getPrimarySymbol(address);
-						symbolInspector.setProgram(program);
-						Color c = (s != null) ? symbolInspector.getColor(s) : Color.RED;
+						Color c = (s != null) ? symbolInspector.getColor(s) : FG_ERROR;
 						setForeground(c);
 					}
 					else if (!program.getMemory().contains(address)) {
-						setForeground(Color.RED);
+						setForeground(FG_ERROR);
 					}
 
 					renderer.setOpaque(true);
@@ -823,12 +824,11 @@ public abstract class AbstractVTMatchTableModel extends AddressBasedTableModel<V
 							renderer.setToolTipText(symbol.getName(true));
 						}
 						if (symbolInspector != null) {
-							symbolInspector.setProgram(symbol.getProgram());
 							renderer.setForeground(symbolInspector.getColor(symbol));
 						}
 					}
 					else {
-						renderer.setForeground(Color.RED);
+						renderer.setForeground(FG_ERROR);
 					}
 
 					renderer.setOpaque(true);
@@ -952,12 +952,11 @@ public abstract class AbstractVTMatchTableModel extends AddressBasedTableModel<V
 					Address address = displayableAddress.getAddress();
 					if (!address.isMemoryAddress() && symbolInspector != null) {
 						Symbol s = program.getSymbolTable().getPrimarySymbol(address);
-						symbolInspector.setProgram(program);
-						Color c = (s != null) ? symbolInspector.getColor(s) : Color.RED;
+						Color c = (s != null) ? symbolInspector.getColor(s) : FG_ERROR;
 						setForeground(c);
 					}
 					else if (!program.getMemory().contains(address)) {
-						setForeground(Color.RED);
+						setForeground(FG_ERROR);
 					}
 
 					renderer.setOpaque(true);

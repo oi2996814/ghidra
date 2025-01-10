@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,21 +15,24 @@
  */
 package ghidra.app.plugin.core.debug.gui.thread;
 
-import com.google.common.collect.Range;
-
-import ghidra.app.services.DebuggerModelService;
-import ghidra.app.services.TraceRecorder;
-import ghidra.dbg.target.TargetExecutionStateful.TargetExecutionState;
-import ghidra.trace.model.Trace;
+import db.Transaction;
+import ghidra.app.plugin.core.debug.gui.action.PCLocationTrackingSpec;
+import ghidra.app.plugin.core.debug.gui.action.SPLocationTrackingSpec;
+import ghidra.app.plugin.core.debug.service.modules.DebuggerStaticMappingUtils;
+import ghidra.debug.api.target.Target;
+import ghidra.debug.api.tracemgr.DebuggerCoordinates;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.Function;
+import ghidra.trace.model.*;
 import ghidra.trace.model.thread.TraceThread;
-import ghidra.util.database.UndoableTransaction;
+import ghidra.util.Msg;
 
 public class ThreadRow {
-	private final DebuggerModelService service;
+	private final DebuggerThreadsProvider provider;
 	private final TraceThread thread;
 
-	public ThreadRow(DebuggerModelService service, TraceThread thread) {
-		this.service = service;
+	public ThreadRow(DebuggerThreadsProvider provider, TraceThread thread) {
+		this.provider = provider;
 		this.thread = thread;
 	}
 
@@ -42,14 +45,41 @@ public class ThreadRow {
 	}
 
 	public void setName(String name) {
-		try (UndoableTransaction tid =
-			UndoableTransaction.start(thread.getTrace(), "Renamed thread", true)) {
+		try (Transaction tx = thread.getTrace().openTransaction("Rename thread")) {
 			thread.setName(name);
 		}
 	}
 
 	public String getName() {
 		return thread.getName();
+	}
+
+	private Address computeProgramCounter(DebuggerCoordinates coords) {
+		// TODO: Cheating a bit. Also, can user configure whether by stack or regs?
+		return PCLocationTrackingSpec.INSTANCE.computeTraceAddress(provider.getTool(),
+			coords);
+	}
+
+	public Address getProgramCounter() {
+		DebuggerCoordinates coords = provider.current.thread(thread);
+		return computeProgramCounter(coords);
+	}
+
+	public Function getFunction() {
+		DebuggerCoordinates coords = provider.current.thread(thread);
+		Address pc = computeProgramCounter(coords);
+		return DebuggerStaticMappingUtils.getFunction(pc, coords, provider.getTool());
+	}
+
+	public String getModule() {
+		DebuggerCoordinates coords = provider.current.thread(thread);
+		Address pc = computeProgramCounter(coords);
+		return DebuggerStaticMappingUtils.getModuleName(pc, coords);
+	}
+
+	public Address getStackPointer() {
+		DebuggerCoordinates coords = provider.current.thread(thread);
+		return SPLocationTrackingSpec.INSTANCE.computeTraceAddress(provider.getTool(), coords);
 	}
 
 	public long getCreationSnap() {
@@ -62,13 +92,12 @@ public class ThreadRow {
 		return snap == Long.MAX_VALUE ? "" : Long.toString(snap);
 	}
 
-	public Range<Long> getLifespan() {
+	public Lifespan getLifespan() {
 		return thread.getLifespan();
 	}
 
 	public void setComment(String comment) {
-		try (UndoableTransaction tid =
-			UndoableTransaction.start(thread.getTrace(), "Renamed thread", true)) {
+		try (Transaction tx = thread.getTrace().openTransaction("Set thread comment")) {
 			thread.setComment(comment);
 		}
 	}
@@ -78,21 +107,22 @@ public class ThreadRow {
 	}
 
 	public ThreadState getState() {
+		// TODO: Once transition to TraceRmi is complete, this is all in TraceObjectManager
 		if (!thread.isAlive()) {
 			return ThreadState.TERMINATED;
 		}
-		if (service == null) {
+		if (provider.targetService == null) {
 			return ThreadState.ALIVE;
 		}
-		TraceRecorder recorder = service.getRecorder(thread.getTrace());
-		if (recorder == null) {
+		Target target = provider.targetService.getTarget(thread.getTrace());
+		if (target == null) {
 			return ThreadState.ALIVE;
 		}
-		TargetExecutionState targetState = recorder.getTargetThreadState(thread);
-		if (targetState == null) {
+		TraceExecutionState state = target.getThreadExecutionState(thread);
+		if (state == null) {
 			return ThreadState.UNKNOWN;
 		}
-		switch (targetState) {
+		switch (state) {
 			case ALIVE:
 				return ThreadState.ALIVE;
 			case INACTIVE:
@@ -109,6 +139,12 @@ public class ThreadRow {
 
 	@Override
 	public String toString() {
-		return getName();
+		try {
+			return getName();
+		}
+		catch (Exception e) {
+			Msg.error(this, "Error rendering as string: " + e);
+			return "<ERROR>";
+		}
 	}
 }

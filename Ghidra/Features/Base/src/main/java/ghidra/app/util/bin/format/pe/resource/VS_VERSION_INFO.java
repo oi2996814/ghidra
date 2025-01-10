@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,13 @@
  */
 package ghidra.app.util.bin.format.pe.resource;
 
-import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
-import ghidra.program.model.data.*;
-import ghidra.util.exception.DuplicateNameException;
-
 import java.io.IOException;
 import java.util.*;
+
+import ghidra.app.util.bin.BinaryReader;
+import ghidra.app.util.bin.StructConverter;
+import ghidra.program.model.data.*;
+import ghidra.util.exception.DuplicateNameException;
 
 /**
  * A class to represent the VS_VERSION_INFO data structure.
@@ -55,7 +55,7 @@ public class VS_VERSION_INFO implements StructConverter {
 	 * @param index the index where the VS_VERSION_INFO begins
 	 * @throws IOException if an I/O error occurs
 	 */
-	public VS_VERSION_INFO(FactoryBundledWithBinaryReader reader, int index) throws IOException {
+	public VS_VERSION_INFO(BinaryReader reader, int index) throws IOException {
 		long oldIndex = reader.getPointerIndex();
 		reader.setPointerIndex(index);
 
@@ -87,6 +87,7 @@ public class VS_VERSION_INFO implements StructConverter {
 		reader.setPointerIndex(oldIndex);
 	}
 
+	@Override
 	public DataType toDataType() throws DuplicateNameException {
 		StructureDataType struct = new StructureDataType(NAME, 0);
 		struct.add(WORD, "StructLength", null);
@@ -256,7 +257,7 @@ public class VS_VERSION_INFO implements StructConverter {
 		return valueMap.get(key);
 	}
 
-	static String shortArrayToString(FactoryBundledWithBinaryReader reader, int nElements)
+	static String shortArrayToString(BinaryReader reader, int nElements)
 			throws IOException {
 		if (nElements == 2) {
 			short[] arr = reader.readNextShortArray(2);
@@ -269,7 +270,7 @@ public class VS_VERSION_INFO implements StructConverter {
 		return null;
 	}
 
-	static String intArrayToString(FactoryBundledWithBinaryReader reader, int nElements)
+	static String intArrayToString(BinaryReader reader, int nElements)
 			throws IOException {
 		if (nElements == 2) {
 			int[] arr = reader.readNextIntArray(2);

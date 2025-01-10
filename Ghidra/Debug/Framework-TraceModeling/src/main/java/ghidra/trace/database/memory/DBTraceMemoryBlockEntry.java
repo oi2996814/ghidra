@@ -23,6 +23,7 @@ import ghidra.program.model.address.AddressSpace;
 import ghidra.trace.database.DBTraceUtils;
 import ghidra.trace.database.DBTraceUtils.OffsetSnap;
 import ghidra.trace.database.DBTraceUtils.OffsetThenSnapDBFieldCodec;
+import ghidra.trace.model.Lifespan;
 import ghidra.util.database.*;
 import ghidra.util.database.annot.*;
 
@@ -45,7 +46,10 @@ class DBTraceMemoryBlockEntry extends DBAnnotatedObject {
 		return DBTraceUtils.tableName(TABLE_NAME, space, threadKey, frameLevel);
 	}
 
-	@DBAnnotatedField(column = LOCATION_COLUMN_NAME, indexed = true, codec = OffsetThenSnapDBFieldCodec.class)
+	@DBAnnotatedField(
+		column = LOCATION_COLUMN_NAME,
+		indexed = true,
+		codec = OffsetThenSnapDBFieldCodec.class)
 	private OffsetSnap location;
 	@DBAnnotatedField(column = BUFFER_COLUMN_NAME)
 	private long bufferKey = -1;
@@ -73,6 +77,10 @@ class DBTraceMemoryBlockEntry extends DBAnnotatedObject {
 		return location.snap;
 	}
 
+	public boolean isScratch() {
+		return Lifespan.isScratch(location.snap);
+	}
+
 	private int getBlockNumber() {
 		return Byte.toUnsignedInt(blockNum);
 	}
@@ -82,6 +90,8 @@ class DBTraceMemoryBlockEntry extends DBAnnotatedObject {
 		assert loc.snap > location.snap;
 		DBTraceMemoryBlockEntry cp = space.blockStore.create();
 		cp.setLoc(loc);
+		space.blockCacheMostRecent.clear();
+		space.blockCacheMostRecent.put(loc, cp);
 		DBTraceMemoryBufferEntry myBuf = findAssignedBuffer();
 		if (myBuf == null) {
 			return cp;
@@ -134,11 +144,11 @@ class DBTraceMemoryBlockEntry extends DBAnnotatedObject {
 	}
 
 	protected DBTraceMemoryBufferEntry findFreeBufferInFuture() throws IOException {
-		DBTraceMemoryBlockEntry prev = space.findSoonestBlockEntry(location, false);
-		if (prev == null) {
+		DBTraceMemoryBlockEntry next = space.findSoonestBlockEntry(location, false);
+		if (next == null) {
 			return null;
 		}
-		return findFreeBuffer(prev);
+		return findFreeBuffer(next);
 	}
 
 	protected DBTraceMemoryBufferEntry findFreeBuffer() throws IOException {

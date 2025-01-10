@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,8 +30,7 @@ import pdb.PdbUtils;
 
 /**
  * A (lowercase-'S') service that searches for and fetches symbol files
- * from a set of local and remote {@link SymbolServer symbolservers}. (not to be 
- * confused with a Plugin service)
+ * from a set of {@link SymbolServer symbolservers}. (not to be confused with a Plugin service)
  * <p>
  * Instances of this class are meant to be easily created when needed
  * and just as easily thrown away when not used or when the search 
@@ -42,15 +41,15 @@ import pdb.PdbUtils;
  */
 public class SymbolServerService {
 
+	private static final int MAX_TRY_COUNT = 3;
 	private SymbolStore symbolStore;	// also the first element of the symbolServers list
 	private List<SymbolServer> symbolServers;
 
 	/**
 	 * Creates a new SymbolServerService instance.
 	 * <p>
-	 * @param symbolStore a {@link SymbolStore} - where all
-	 *  remote files are placed when downloaded. Also treated as a SymbolServer
-	 *  and searched first
+	 * @param symbolStore a {@link SymbolStore} - where all remote files are placed when 
+	 * downloaded. Also treated as a SymbolServer and searched first
 	 * @param symbolServers  a list of {@link SymbolServer symbol servers} - searched in order
 	 */
 	public SymbolServerService(SymbolStore symbolStore, List<SymbolServer> symbolServers) {
@@ -87,19 +86,6 @@ public class SymbolServerService {
 	 */
 	public List<SymbolServer> getSymbolServers() {
 		return new ArrayList<>(symbolServers.subList(1, symbolServers.size()));
-	}
-
-	/**
-	 * Returns the number of configured symbol servers that are considered 'remote'.
-	 * @return number of remote symbol servers
-	 */
-	public int getRemoteSymbolServerCount() {
-		int remoteSymbolServerCount = (int) getSymbolServers()
-				.stream()
-				.filter(ss -> !ss.isLocal())
-				.count();
-
-		return remoteSymbolServerCount;
 	}
 
 	/**
@@ -147,10 +133,10 @@ public class SymbolServerService {
 		Set<String> uniqueSymbolFilePaths = new HashSet<>();
 
 		for_each_symbol_server_loop: for (SymbolServer symbolServer : symbolServers) {
-			monitor.checkCanceled();
-			if (!symbolServer.isLocal() && !findOptions.contains(FindOption.ALLOW_REMOTE)) {
+			monitor.checkCancelled();
+			if (!symbolServer.isTrusted() && !findOptions.contains(FindOption.ALLOW_UNTRUSTED)) {
 				Msg.debug(this,
-					logPrefix() + ": skipping non-local symbol server " +
+					logPrefix() + ": skipping untrusted symbol server " +
 						symbolServer.getDescriptiveName());
 				continue;
 			}
@@ -233,20 +219,7 @@ public class SymbolServerService {
 	private SymbolFileLocation ensureLocalUncompressedFile(SymbolFileLocation symbolFileLocation,
 			TaskMonitor monitor) throws IOException, CancelledException {
 		if (!(symbolFileLocation.getSymbolServer() instanceof SymbolStore)) {
-			Msg.debug(this, logPrefix() + ": copying file " + symbolFileLocation.getLocationStr() +
-				" from remote to local " + symbolStore.getName());
-
-			// copy from remote store to our main local symbol store
-			String remoteFilename = FilenameUtils.getName(symbolFileLocation.getPath());
-			try (SymbolServerInputStream symbolServerInputStream =
-				symbolFileLocation.getSymbolServer()
-						.getFileStream(symbolFileLocation.getPath(), monitor)) {
-				String newPath =
-					symbolStore.putStream(symbolFileLocation.getFileInfo(), symbolServerInputStream,
-						remoteFilename, monitor);
-				symbolFileLocation =
-					new SymbolFileLocation(newPath, symbolStore, symbolFileLocation.getFileInfo());
-			}
+			symbolFileLocation = copyRemoteToLocal(symbolFileLocation, monitor);
 		}
 
 		// symbolFileLocation now must be on a SymbolStore, so safe to cast
@@ -254,11 +227,16 @@ public class SymbolServerService {
 
 		if (SymbolStore.isCompressedFilename(symbolFileLocation.getPath())) {
 			File cabFile = localSymbolStore.getFile(symbolFileLocation.getPath());
-			File temporaryExtractFile = new File(symbolStore.getAdminDir(),
-				"ghidra_cab_extract_tmp_" + System.currentTimeMillis());
+			File adminDir = symbolStore.getAdminDir();
+			if (!adminDir.isDirectory()) {
+				// if the admin dir is missing, use the cab file's directory
+				adminDir = cabFile.getParentFile();
+			}
+			File temporaryExtractFile =
+				new File(adminDir, "ghidra_cab_extract_tmp_" + System.currentTimeMillis());
 
-			Msg.debug(this,
-				logPrefix() + ": decompressing file " + symbolFileLocation.getLocationStr());
+			Msg.debug(this, "%s: decompressing file %s".formatted(logPrefix(),
+				symbolFileLocation.getLocationStr()));
 
 			String originalName =
 				PdbUtils.extractSingletonCabToFile(cabFile, temporaryExtractFile, monitor);
@@ -269,11 +247,43 @@ public class SymbolServerService {
 			symbolFileLocation = new SymbolFileLocation(uncompressedPath, symbolStore,
 				symbolFileLocation.getFileInfo());
 
-			Msg.debug(this,
-				logPrefix() + ": new decompressed file " + symbolFileLocation.getLocationStr());
+			Msg.debug(this, "%s: new decompressed file %s".formatted(logPrefix(),
+				symbolFileLocation.getLocationStr()));
 		}
 
 		return symbolFileLocation;
+	}
+
+	private SymbolFileLocation copyRemoteToLocal(SymbolFileLocation symbolFileLocation,
+			TaskMonitor monitor) throws CancelledException, IOException {
+		int tryCount = 0;
+		while (true) {
+			Msg.debug(this,
+				"%s try[%d]: copying file %s from remote to local %s".formatted(logPrefix(),
+					tryCount, symbolFileLocation.getLocationStr(), symbolStore.getName()));
+
+			// copy from remote store to our main local symbol store
+			String remoteFilename = FilenameUtils.getName(symbolFileLocation.getPath());
+			try (SymbolServerInputStream symbolServerInputStream =
+				symbolFileLocation.getSymbolServer()
+						.getFileStream(symbolFileLocation.getPath(), monitor)) {
+				String newPath = symbolStore.putStream(symbolFileLocation.getFileInfo(),
+					symbolServerInputStream, remoteFilename, monitor);
+				return new SymbolFileLocation(newPath, symbolStore,
+					symbolFileLocation.getFileInfo());
+			}
+			catch (IOException e) {
+				String msg = "%s: error copying file %s to %s: %s".formatted(logPrefix(),
+					symbolFileLocation.getLocationStr(), symbolStore.getName(), e.getMessage());
+				if (++tryCount >= MAX_TRY_COUNT) {
+					Msg.error(this, msg);
+					throw e; // failure
+				}
+
+				// allow retry
+				Msg.warn(this, msg);
+			}
+		}
 	}
 
 	private String logPrefix() {

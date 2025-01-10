@@ -650,7 +650,7 @@ public class MDSpecialName extends MDParsableItem {
 								dmang.parseInfoPop();
 								break;
 							case 'J':
-								dmang.parseInfoPush(3, "thread guard");
+								dmang.parseInfoPush(3, "local static thread guard");
 								name = "`local static thread guard'";
 								dmang.parseInfoPop();
 								break;
@@ -688,6 +688,30 @@ public class MDSpecialName extends MDParsableItem {
 				break;
 		}
 	}
+
+	/**
+	 * Get Number (it is output as Number << '@' where Number is an unsigned int, so we are
+	 *  capturing it as a string of digits, terminated with an '@' character.
+	 *  Built for what seems to be LLVM-specific mangling.  Does not follow MSFT model.
+	 * @return a the Number represented by a String (decimal).
+	 * @throws MDException Upon invalid character sequence or out of characters.
+	 */
+	private String getNumberString() throws MDException {
+		char ch;
+		StringBuilder builder = new StringBuilder();
+		dmang.parseInfoPush(0, "Number");
+		while ((ch = dmang.peek()) != '@') {
+			if (!Character.isDigit(ch)) { // includes end of string (MDMang.DONE)
+				throw new MDException("Illegal character in Number: " + ch);
+			}
+			builder.append(ch);
+			dmang.next();
+		}
+		dmang.next(); // '@'
+		dmang.parseInfoPop();
+		return builder.toString();
+	}
+
 }
 
 /******************************************************************************/

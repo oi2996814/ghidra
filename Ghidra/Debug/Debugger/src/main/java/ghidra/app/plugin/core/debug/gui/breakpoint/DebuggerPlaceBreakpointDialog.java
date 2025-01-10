@@ -22,6 +22,8 @@ import java.util.Set;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 import docking.DialogComponentProvider;
 import ghidra.app.plugin.core.debug.gui.DebuggerResources.AbstractSetBreakpointAction;
@@ -29,11 +31,13 @@ import ghidra.app.services.DebuggerLogicalBreakpointService;
 import ghidra.async.AsyncUtils;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.trace.model.breakpoint.TraceBreakpointKind;
 import ghidra.trace.model.breakpoint.TraceBreakpointKind.TraceBreakpointKindSet;
 import ghidra.util.MessageType;
+import ghidra.util.Swing;
 import ghidra.util.layout.PairLayout;
 
 public class DebuggerPlaceBreakpointDialog extends DialogComponentProvider {
@@ -42,15 +46,35 @@ public class DebuggerPlaceBreakpointDialog extends DialogComponentProvider {
 	private Address address;
 	private long length;
 	private Set<TraceBreakpointKind> kinds;
+	private String name;
 
 	private JTextField fieldAddress;
 	private JTextField fieldLength;
 	private JComboBox<String> fieldKinds;
+	private JTextField fieldName;
+	private PluginTool tool;
+	private String statusText = null;
 
 	public DebuggerPlaceBreakpointDialog() {
 		super(AbstractSetBreakpointAction.NAME, true, true, true, false);
 
 		populateComponents();
+	}
+
+	protected boolean validateAddress() {
+		address = program.getAddressFactory().getAddress(fieldAddress.getText());
+		if (address == null) {
+			setStatusText("Invalid address: " + fieldAddress.getText());
+			return false;
+		}
+		Instruction instruction = program.getListing().getInstructionContaining(address);
+		if (instruction != null && !address.equals(instruction.getAddress())) {
+			setStatusText("Warning: breakpoint is offset within an instruction.");
+		}
+		else {
+			clearStatusText();
+		}
+		return true;
 	}
 
 	protected void populateComponents() {
@@ -62,6 +86,29 @@ public class DebuggerPlaceBreakpointDialog extends DialogComponentProvider {
 		fieldAddress = new JTextField();
 		panel.add(labelAddress);
 		panel.add(fieldAddress);
+
+		fieldAddress.setInputVerifier(new InputVerifier() {
+			@Override
+			public boolean verify(JComponent input) {
+				return validateAddress();
+			}
+		});
+		fieldAddress.getDocument().addDocumentListener(new DocumentListener() {
+			@Override
+			public void insertUpdate(DocumentEvent e) {
+				validateAddress();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e) {
+				validateAddress();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e) {
+				validateAddress();
+			}
+		});
 
 		JLabel labelLength = new JLabel("Length");
 		fieldLength = new JTextField();
@@ -81,6 +128,11 @@ public class DebuggerPlaceBreakpointDialog extends DialogComponentProvider {
 		panel.add(labelKinds);
 		panel.add(fieldKinds);
 
+		JLabel labelName = new JLabel("Name");
+		fieldName = new JTextField();
+		panel.add(labelName);
+		panel.add(fieldName);
+
 		addWorkPanel(panel);
 
 		addOKButton();
@@ -88,28 +140,30 @@ public class DebuggerPlaceBreakpointDialog extends DialogComponentProvider {
 	}
 
 	public void prompt(PluginTool tool, DebuggerLogicalBreakpointService service, String title,
-			ProgramLocation loc, long length, Collection<TraceBreakpointKind> kinds) {
+			ProgramLocation loc, long length, Collection<TraceBreakpointKind> kinds, String name) {
 		this.service = service;
 		this.program = loc.getProgram();
-		this.address = loc.getAddress(); // byte address can be confusing here.
+		this.address = DebuggerLogicalBreakpointService.addressFromLocation(loc);
 		this.length = length;
 		this.kinds = Set.copyOf(kinds);
+		this.name = name;
 
 		this.fieldAddress.setText(address.toString());
 		this.fieldLength.setText(Long.toUnsignedString(length));
 		this.fieldKinds.setSelectedItem(TraceBreakpointKindSet.encode(kinds));
+		this.fieldName.setText("");
+		this.tool = tool;
 
-		clearStatusText();
+		validateAddress();
 
 		setTitle(title);
+		statusText = null;
 		tool.showDialog(this);
 	}
 
 	@Override
 	protected void okCallback() {
-		address = program.getAddressFactory().getAddress(fieldAddress.getText());
-		if (address == null) {
-			setStatusText("Invalid address: " + fieldAddress.getText());
+		if (!validateAddress()) {
 			return;
 		}
 		try {
@@ -128,13 +182,28 @@ public class DebuggerPlaceBreakpointDialog extends DialogComponentProvider {
 			return;
 		}
 
+		name = fieldName.getText();
+
 		ProgramLocation loc = new ProgramLocation(program, address);
-		service.placeBreakpointAt(loc, length, kinds).thenAccept(__ -> {
-			close();
-		}).exceptionally(ex -> {
+		service.placeBreakpointAt(loc, length, kinds, name).exceptionally(ex -> {
 			ex = AsyncUtils.unwrapThrowable(ex);
-			setStatusText(ex.getMessage(), MessageType.ERROR, true);
+			statusText = ex.getMessage(); // will be set when dialog is shown later
+			tool.showDialog(this);
 			return null;
 		});
+		close();
+	}
+
+	@Override
+	protected void dialogShown() {
+		if (statusText != null) {
+			setStatusText(statusText, MessageType.ERROR, true);
+		}
+	}
+
+	/* testing */
+	void setName(String name) {
+		this.name = name;
+		Swing.runNow(() -> this.fieldName.setText(name));
 	}
 }

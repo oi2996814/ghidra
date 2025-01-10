@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,9 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.program.model.data.*;
-import ghidra.util.*;
+import ghidra.util.DataConverter;
+import ghidra.util.Msg;
 import ghidra.util.exception.DuplicateNameException;
 
 /**
@@ -56,35 +56,29 @@ public class BoundImportDescriptor implements StructConverter, ByteArrayConverte
 
     private List<BoundImportForwarderRef> forwarders = new ArrayList<BoundImportForwarderRef>();
 
-    static BoundImportDescriptor createBoundImportDescriptor(
-            FactoryBundledWithBinaryReader reader, int readerIndex,
-            int biddIndex) throws IOException {
-        BoundImportDescriptor boundImportDescriptor = (BoundImportDescriptor) reader.getFactory().create(BoundImportDescriptor.class);
-        boundImportDescriptor.initBoundImportDescriptor(reader, readerIndex, biddIndex);
-        return boundImportDescriptor;
+	BoundImportDescriptor(BinaryReader reader, int readerIndex, int biddIndex) throws IOException {
+		timeDateStamp = reader.readInt(readerIndex);
+		readerIndex += BinaryReader.SIZEOF_INT;
+		offsetModuleName = reader.readShort(readerIndex);
+		readerIndex += BinaryReader.SIZEOF_SHORT;
+		numberOfModuleForwarderRefs = reader.readShort(readerIndex);
+		readerIndex += BinaryReader.SIZEOF_SHORT;
+		if (offsetModuleName < 0) {
+			Msg.error(this, "Invalid offsetModuleName " + offsetModuleName);
+			return;
+		}
+
+		moduleName = reader.readAsciiString(biddIndex + offsetModuleName);
+
+		for (int i = 0; i < numberOfModuleForwarderRefs; ++i) {
+			forwarders.add(new BoundImportForwarderRef(reader, readerIndex, biddIndex));
+			readerIndex += BoundImportForwarderRef.IMAGE_SIZEOF_BOUND_IMPORT_FORWARDER_REF;
+		}
     }
 
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public BoundImportDescriptor() {}
+	BoundImportDescriptor() {
 
-    private void initBoundImportDescriptor(FactoryBundledWithBinaryReader reader, int readerIndex, int biddIndex) throws IOException {
-        timeDateStamp               = reader.readInt  (readerIndex); readerIndex += BinaryReader.SIZEOF_INT;
-        offsetModuleName            = reader.readShort(readerIndex); readerIndex += BinaryReader.SIZEOF_SHORT;
-        numberOfModuleForwarderRefs = reader.readShort(readerIndex); readerIndex += BinaryReader.SIZEOF_SHORT;
-        if (offsetModuleName < 0) {
-        	Msg.error(this, "Invalid offsetModuleName "+offsetModuleName);
-        	return;
-        }
-
-        moduleName = reader.readAsciiString(biddIndex + offsetModuleName);
-
-        for (int i = 0 ; i < numberOfModuleForwarderRefs ; ++i) {
-            forwarders.add(BoundImportForwarderRef.createBoundImportForwarderRef(reader, readerIndex, biddIndex));
-            readerIndex += BoundImportForwarderRef.IMAGE_SIZEOF_BOUND_IMPORT_FORWARDER_REF;
-        }
-    }
+	}
 
 	public BoundImportDescriptor(String name, int timeDateStamp) {
 		this.moduleName = name;
@@ -147,22 +141,26 @@ public class BoundImportDescriptor implements StructConverter, ByteArrayConverte
     public String toString() {
 		StringBuffer buffer = new StringBuffer();
 		buffer.append("TimeStamp:"+Integer.toHexString(timeDateStamp)+",");
-		buffer.append("OffsetModuleName:"+Integer.toHexString(Conv.shortToInt(offsetModuleName))+"["+moduleName+"]"+",");
-		buffer.append("NumberOfModuleForwarderRefs:"+Integer.toHexString(Conv.shortToInt(numberOfModuleForwarderRefs)));
+		buffer.append(
+			"OffsetModuleName:" + Integer.toHexString(Short.toUnsignedInt(offsetModuleName)) + "[" +
+				moduleName + "]" + ",");
+		buffer.append("NumberOfModuleForwarderRefs:" +
+			Integer.toHexString(Short.toUnsignedInt(numberOfModuleForwarderRefs)));
 		buffer.append("\n");
 		for(int i=0;i<forwarders.size();i++) {
 			BoundImportForwarderRef ref = forwarders.get(i);
 			buffer.append("\t"+"TimeStamp:"+Integer.toHexString(ref.getTimeDateStamp())+",");
-			buffer.append("\t"+"OffsetModuleName:"+Integer.toHexString(Conv.shortToInt(ref.getOffsetModuleName()))+"["+ref.getModuleName()+"]"+",");
-			buffer.append("\t"+"Reserved:"+Integer.toHexString(Conv.shortToInt(ref.getReserved())));
+			buffer.append("\t" + "OffsetModuleName:" +
+				Integer.toHexString(Short.toUnsignedInt(ref.getOffsetModuleName())) + "[" +
+				ref.getModuleName() + "]" + ",");
+			buffer.append(
+				"\t" + "Reserved:" + Integer.toHexString(Short.toUnsignedInt(ref.getReserved())));
 			buffer.append("\n");
 		}
 		return buffer.toString();
 	}
 
-    /**
-     * @see ghidra.app.util.bin.StructConverter#toDataType()
-     */
+	@Override
     public DataType toDataType() throws DuplicateNameException {
         StructureDataType struct = new StructureDataType(NAME+"_"+forwarders.size(), 0);
 
@@ -180,9 +178,7 @@ public class BoundImportDescriptor implements StructConverter, ByteArrayConverte
         return struct;
     }
 
-	/**
-	 * @see ghidra.app.util.bin.ByteArrayConverter#toBytes(ghidra.util.DataConverter)
-	 */
+	@Override
 	public byte [] toBytes(DataConverter dc) {
 		byte [] bytes = new byte[IMAGE_SIZEOF_BOUND_IMPORT_DESCRIPTOR + 
 			(numberOfModuleForwarderRefs*BoundImportForwarderRef.IMAGE_SIZEOF_BOUND_IMPORT_FORWARDER_REF)];

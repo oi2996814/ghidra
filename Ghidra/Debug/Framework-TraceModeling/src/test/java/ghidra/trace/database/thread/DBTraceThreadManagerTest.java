@@ -15,23 +15,35 @@
  */
 package ghidra.trace.database.thread;
 
-import static ghidra.lifecycle.Unfinished.TODO;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 
+import java.util.Set;
+
+import org.hamcrest.BaseMatcher;
+import org.hamcrest.Description;
 import org.junit.*;
 
-import com.google.common.collect.Range;
-
+import db.Transaction;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
 import ghidra.trace.database.ToyDBTraceBuilder;
-import ghidra.util.database.UndoableTransaction;
+import ghidra.trace.model.Lifespan;
+import ghidra.trace.model.thread.TraceThread;
 import ghidra.util.exception.DuplicateNameException;
 
 public class DBTraceThreadManagerTest extends AbstractGhidraHeadlessIntegrationTest {
 
 	ToyDBTraceBuilder b;
 	DBTraceThreadManager threadManager;
+
+	TraceThread thread1;
+	TraceThread thread2;
+
+	protected void addThreads() throws Exception {
+		try (Transaction tx = b.startTransaction()) {
+			thread1 = threadManager.createThread("Threads[1]", 0);
+			thread2 = threadManager.addThread("Threads[2]", Lifespan.span(0, 10));
+		}
+	}
 
 	@Before
 	public void setUpThreadManagerTest() throws Exception {
@@ -46,25 +58,89 @@ public class DBTraceThreadManagerTest extends AbstractGhidraHeadlessIntegrationT
 
 	@Test
 	public void testAddThread() throws Exception {
-		try (UndoableTransaction tid = b.startTransaction()) {
-			threadManager.createThread("Thread 1", 0);
-			threadManager.addThread("Thread 2", Range.closed(0L, 10L));
-		}
-
-		try (UndoableTransaction tid = b.startTransaction()) {
-			threadManager.createThread("Thread 1", 1);
+		addThreads();
+		try (Transaction tx = b.startTransaction()) {
+			// TODO: Let this work by expanding the life instead
+			threadManager.createThread("Threads[1]", 1);
 			fail();
 		}
 		catch (DuplicateNameException e) {
 			// pass
 		}
 
-		assertEquals(1, threadManager.getThreadsByPath("Thread 1").size());
+		assertEquals(Set.of(thread1), Set.copyOf(threadManager.getThreadsByPath("Threads[1]")));
 	}
 
 	@Test
-	@Ignore("TODO")
-	public void testMore() throws Exception {
-		TODO();
+	public void testGetAllThreads() throws Exception {
+		assertEquals(Set.of(), Set.copyOf(threadManager.getAllThreads()));
+
+		addThreads();
+		assertEquals(Set.of(thread1, thread2), Set.copyOf(threadManager.getAllThreads()));
+	}
+
+	@Test
+	public void testGetThreadsByPath() throws Exception {
+		assertEquals(Set.of(), Set.copyOf(threadManager.getThreadsByPath("Threads[1]")));
+
+		addThreads();
+		assertEquals(Set.of(thread1), Set.copyOf(threadManager.getThreadsByPath("Threads[1]")));
+		assertEquals(Set.of(thread2), Set.copyOf(threadManager.getThreadsByPath("Threads[2]")));
+	}
+
+	protected static class InvalidThreadMatcher extends BaseMatcher<TraceThread> {
+		private final long snap;
+
+		public InvalidThreadMatcher(long snap) {
+			this.snap = snap;
+		}
+
+		@Override
+		public boolean matches(Object actual) {
+			return actual == null || actual instanceof TraceThread thread && !thread.isValid(snap);
+		}
+
+		@Override
+		public void describeTo(Description description) {
+			description.appendText("An invalid or null thread");
+		}
+	}
+
+	protected static InvalidThreadMatcher invalidThread(long snap) {
+		return new InvalidThreadMatcher(snap);
+	}
+
+	@Test
+	public void testLiveThreadByPath() throws Exception {
+		assertNull(threadManager.getLiveThreadByPath(0, "Threads[1]"));
+
+		addThreads();
+		assertEquals(thread1, threadManager.getLiveThreadByPath(0, "Threads[1]"));
+		assertEquals(thread2, threadManager.getLiveThreadByPath(0, "Threads[2]"));
+		assertEquals(thread2, threadManager.getLiveThreadByPath(10, "Threads[2]"));
+		assertNull(threadManager.getLiveThreadByPath(0, "Threads[3]"));
+		assertThat(threadManager.getLiveThreadByPath(-1, "Threads[2]"), invalidThread(-1));
+		assertThat(threadManager.getLiveThreadByPath(11, "Threads[2]"), invalidThread(11));
+	}
+
+	@Test
+	public void testGetThread() throws Exception {
+		assertNull(threadManager.getThread(0));
+
+		addThreads();
+		assertEquals(thread1, threadManager.getThread(thread1.getKey()));
+		assertEquals(thread2, threadManager.getThread(thread2.getKey()));
+	}
+
+	@Test
+	public void testGetLiveThreads() throws Exception {
+		assertEquals(Set.of(), threadManager.getLiveThreads(0));
+
+		addThreads();
+		assertEquals(Set.of(), threadManager.getLiveThreads(-1));
+		assertEquals(Set.of(thread1, thread2), threadManager.getLiveThreads(0));
+		assertEquals(Set.of(thread1, thread2), threadManager.getLiveThreads(9));
+		// NB. Destruction is excluded
+		assertEquals(Set.of(thread1), threadManager.getLiveThreads(10));
 	}
 }

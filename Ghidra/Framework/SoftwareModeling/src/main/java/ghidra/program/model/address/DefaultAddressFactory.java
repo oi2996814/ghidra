@@ -18,7 +18,7 @@ package ghidra.program.model.address;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-import ghidra.program.model.lang.BasicCompilerSpec;
+import ghidra.program.model.lang.SpaceNames;
 import ghidra.util.datastruct.IntObjectHashtable;
 import ghidra.util.exception.DuplicateNameException;
 
@@ -128,7 +128,7 @@ public class DefaultAddressFactory implements AddressFactory {
 
 	private void checkReservedJoin(AddressSpace space) {
 		if (space.getType() == AddressSpace.TYPE_JOIN ||
-			space.getName().equals(BasicCompilerSpec.JOIN_SPACE_NAME)) {
+			space.getName().equals(SpaceNames.JOIN_SPACE_NAME)) {
 			throw new IllegalArgumentException("Join space should not be specified");
 		}
 	}
@@ -142,7 +142,7 @@ public class DefaultAddressFactory implements AddressFactory {
 
 	private void checkReservedStack(AddressSpace space) {
 		if (space.getType() == AddressSpace.TYPE_STACK ||
-			space.getName().equalsIgnoreCase(BasicCompilerSpec.STACK_SPACE_NAME)) {
+			space.getName().equalsIgnoreCase(SpaceNames.STACK_SPACE_NAME)) {
 			throw new IllegalArgumentException("Stack space should not be specified");
 		}
 	}
@@ -196,9 +196,6 @@ public class DefaultAddressFactory implements AddressFactory {
 				try {
 					Address addr = space.getAddress(addrString, caseSensitive);
 					if (addr == null) {
-						continue;
-					}
-					if (space.isOverlaySpace() && addr.getAddressSpace() != space) {
 						continue;
 					}
 					if (space.isNonLoadedMemorySpace()) {
@@ -399,7 +396,7 @@ public class DefaultAddressFactory implements AddressFactory {
 			throw new DuplicateNameException("Space named " + space.getName() + " already exists!");
 		}
 		if (space.getType() == AddressSpace.TYPE_VARIABLE) {
-			spaceNameTable.put("join", space);// Add VARIABLE space with name "join"
+			spaceNameTable.put(SpaceNames.JOIN_SPACE_NAME, space);// Add VARIABLE space with name "join"
 			return;// Don't put it in the spaces array or the id lookup table
 		}
 		spaces.add(space);
@@ -412,27 +409,28 @@ public class DefaultAddressFactory implements AddressFactory {
 	}
 
 	/**
-	 * Rename overlay with newName.
-	 * @param oldOverlaySpaceName the existing overlay address space name
-	 * @param newName the new name of the overlay address space.  
-	 * @return new name applied to existing overlay space
-	 * @throws DuplicateNameException if space with newName already exists
-	 * @throws IllegalArgumentException if specified oldOverlaySpaceName was not found as
-	 * an existing overlay space
+	 * Update address factory map <b>following</b> the rename of an overlay address space instance.  
+	 * The caller is reponsible for the actual renaming of the existing overlay space instance and 
+	 * must ensure the newName is not already assigned to another space.
+	 * @param oldOverlaySpaceName previous name of existing overlay space
+	 * @param newName new name for existing overlay space
+	 * @return overlay space instance which was renamed
 	 */
-	protected String renameOverlaySpace(String oldOverlaySpaceName, String newName)
-			throws DuplicateNameException {
-		if (getAddressSpace(newName) != null) {
-			throw new DuplicateNameException("AddressSpace named " + newName + " already exists!");
+	protected OverlayAddressSpace overlaySpaceRenamed(String oldOverlaySpaceName, String newName) {
+		if (spaceNameTable.get(newName) != null) {
+			throw new AssertionError("Address space named " + newName + " already exists!");
 		}
-		AddressSpace space = getAddressSpace(oldOverlaySpaceName);
-		if (space != null && space.isOverlaySpace()) {
-			((OverlayAddressSpace) space).setName(newName);
+		AddressSpace space = spaceNameTable.get(oldOverlaySpaceName);
+		if (space instanceof OverlayAddressSpace os) {
+			if (!newName.equals(os.getName())) {
+				throw new AssertionError(
+					"Overlay space " + oldOverlaySpaceName + " was not renamed");
+			}
 			spaceNameTable.remove(oldOverlaySpaceName);
-			spaceNameTable.put(space.getName(), space);
-			return newName;
+			spaceNameTable.put(newName, os);
+			return os;
 		}
-		throw new IllegalArgumentException("No such overlay space: " + oldOverlaySpaceName);
+		throw new AssertionError("Overlay space not found: " + oldOverlaySpaceName);
 	}
 
 	/**
@@ -441,10 +439,9 @@ public class DefaultAddressFactory implements AddressFactory {
 	 * @param spaceName the name of the space to remove.
 	 */
 	protected void removeAddressSpace(String spaceName) {
-		AddressSpace deletedSpace = spaceNameTable.get(spaceName);
+		AddressSpace deletedSpace = spaceNameTable.remove(spaceName);
 		if (deletedSpace != null) {
 			spaces.remove(deletedSpace);
-			spaceNameTable.remove(deletedSpace.getName());
 			spaceLookup.remove(deletedSpace.getSpaceID());
 			if (deletedSpace.getType() == AddressSpace.TYPE_RAM ||
 				deletedSpace.getType() == AddressSpace.TYPE_CODE) {

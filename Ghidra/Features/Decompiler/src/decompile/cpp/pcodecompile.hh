@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef __PCODE_COMPILE__
-#define __PCODE_COMPILE__
+#ifndef __PCODECOMPILE_HH__
+#define __PCODECOMPILE_HH__
 
 #include "slghsymbol.hh"
+
+namespace ghidra {
 
 class Location {
   string filename;
@@ -58,7 +60,7 @@ class PcodeCompile {
   AddrSpace *uniqspace;
   uint4 local_labelcount;	// Number of labels in current constructor
   bool enforceLocalKey;		// Force slaspec to use 'local' keyword when defining temporary varnodes
-  virtual uintb allocateTemp(void)=0;
+  virtual uint4 allocateTemp(void)=0;
   virtual void addSymbol(SleighSymbol *sym)=0;
 public:
   PcodeCompile(void) { defaultspace=(AddrSpace *)0; constantspace=(AddrSpace *)0;
@@ -102,4 +104,5 @@ public:
   static bool propagateSize(ConstructTpl *ct);
 };
 
+} // End namespace ghidra
 #endif

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,6 +18,7 @@ package ghidra.app.plugin.core.function;
 import java.awt.Component;
 import java.awt.event.ItemEvent;
 import java.util.List;
+import java.util.Objects;
 
 import javax.swing.*;
 
@@ -32,6 +33,7 @@ import ghidra.app.util.parser.FunctionSignatureParser;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.FunctionDefinitionDataType;
+import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionSignature;
 import ghidra.util.exception.CancelledException;
 
@@ -110,7 +112,7 @@ public abstract class AbstractEditFunctionSignatureDialog extends DialogComponen
 	protected abstract String getPrototypeString();
 
 	/**
-	 * @return initial calling convention name
+	 * @return initial calling convention name or null for unknown
 	 */
 	protected abstract String getCallingConventionName();
 
@@ -179,14 +181,10 @@ public abstract class AbstractEditFunctionSignatureDialog extends DialogComponen
 		mainPanel.add(buildSignaturePanel());
 		mainPanel.add(buildAttributePanel());
 		if (allowCallFixup) {
-			installCallFixupWidget(mainPanel);
+			JPanel callFixupPanel = buildCallFixupPanel();
+			mainPanel.add(callFixupPanel != null ? callFixupPanel : buildSpacerPanel());
 		}
 		return mainPanel;
-	}
-
-	private void installCallFixupWidget(JPanel parentPanel) {
-		JPanel callFixupPanel = buildCallFixupPanel();
-		parentPanel.add(callFixupPanel != null ? callFixupPanel : buildSpacerPanel());
 	}
 
 	private JPanel buildSignaturePanel() {
@@ -237,7 +235,7 @@ public abstract class AbstractEditFunctionSignatureDialog extends DialogComponen
 
 	private void installInlineWidget(JPanel parentPanel) {
 		inlineCheckBox = new GCheckBox("Inline");
-		inlineCheckBox.addChangeListener(e -> {
+		inlineCheckBox.addItemListener(e -> {
 			if (inlineCheckBox.isSelected() && callFixupComboBox != null) {
 				callFixupComboBox.setSelectedItem(NONE_CHOICE);
 			}
@@ -251,10 +249,6 @@ public abstract class AbstractEditFunctionSignatureDialog extends DialogComponen
 	}
 
 	private JPanel buildCallFixupPanel() {
-
-		if (allowCallFixup) {
-			return null;
-		}
 
 		JPanel callFixupPanel = new JPanel();
 		callFixupPanel.setLayout(new BoxLayout(callFixupPanel, BoxLayout.X_AXIS));
@@ -290,17 +284,33 @@ public abstract class AbstractEditFunctionSignatureDialog extends DialogComponen
 	}
 
 	private void setCallingConventionChoices() {
+		String callingConventionName = getCallingConventionName();
 		callingConventionComboBox.removeAllItems();
 		for (String element : getCallingConventionNames()) {
+			if (element.equals(callingConventionName)) {
+				callingConventionName = null;
+			}
 			callingConventionComboBox.addItem(element);
+		}
+		if (callingConventionName != null) {
+			callingConventionComboBox.addItem(callingConventionName);
 		}
 	}
 
 	/**
-	 * @return current calling convention selection from dialog
+	 * @return current calling convention selection from dialog.  Null will be returned
+	 * if unknown is selected.
 	 */
-	protected String getCallingConvention() {
-		return (String) callingConventionComboBox.getSelectedItem();
+	protected final String getCallingConvention() {
+		String callingConvention = (String) callingConventionComboBox.getSelectedItem();
+		if (callingConvention != null) {
+			callingConvention = callingConvention.trim();
+		}
+		if (callingConvention.length() == 0 ||
+			Function.UNKNOWN_CALLING_CONVENTION_STRING.equals(callingConvention)) {
+			callingConvention = null;
+		}
+		return callingConvention;
 	}
 
 	/**
@@ -387,7 +397,6 @@ public abstract class AbstractEditFunctionSignatureDialog extends DialogComponen
 		FunctionSignatureParser parser = new FunctionSignatureParser(
 			getDataTypeManager(), tool.getService(DataTypeManagerService.class));
 		try {
-			// FIXME: Parser returns FunctionDefinition which only supports GenericCallingConventions
 			return parser.parse(getFunctionSignature(), getSignature());
 		}
 		catch (ParseException e) {
@@ -410,22 +419,7 @@ public abstract class AbstractEditFunctionSignatureDialog extends DialogComponen
 	 */
 	protected final boolean isCallingConventionChanged() {
 		String current = getCallingConventionName();
-		if (current == null && this.getCallingConvention() == null) {
-			return false;
-		}
-		if (current == null && this.getCallingConvention().equals("default")) {
-			return false;
-		}
-		if (current == null && this.getCallingConvention().equals("unknown")) {
-			return false;
-		}
-		if (current == null) {
-			return true;
-		}
-		if (current.equals(getCallingConvention())) {
-			return false;
-		}
-		return true;
+		return !Objects.equals(current, getCallingConvention());
 	}
 
 	@Override

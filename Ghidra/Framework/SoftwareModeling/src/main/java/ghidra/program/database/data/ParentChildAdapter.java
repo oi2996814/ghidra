@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,10 +18,9 @@ package ghidra.program.database.data;
 import java.io.IOException;
 import java.util.Set;
 
-import db.DBConstants;
 import db.DBHandle;
+import ghidra.framework.data.OpenMode;
 import ghidra.util.exception.VersionException;
-import ghidra.util.task.TaskMonitor;
 
 /**
  *
@@ -31,37 +30,46 @@ import ghidra.util.task.TaskMonitor;
  * 
  */
 abstract class ParentChildAdapter {
-	static final String TABLE_NAME = "DT_PARENT_CHILD";
+	static final String PARENT_CHILD_TABLE_NAME = "DT_PARENT_CHILD";
 
-	static ParentChildAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor)
+	/**
+	 * Gets an adapter for working with the function definition parameters database table.
+	 * @param handle handle to the database to be accessed.
+	 * @param openMode the mode this adapter is to be opened for (CREATE, UPDATE, READ_ONLY, UPGRADE).
+	 * @param tablePrefix prefix to be used with default table name
+	 * @return the adapter for accessing the table of function definition parameters.
+	 * @throws VersionException if the database handle's version doesn't match the expected version.
+	 * @throws IOException if there is trouble accessing the database.
+	 */
+	static ParentChildAdapter getAdapter(DBHandle handle, OpenMode openMode, String tablePrefix)
 			throws VersionException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
-			return new ParentChildDBAdapterV0(handle, true);
+		if (openMode == OpenMode.CREATE) {
+			return new ParentChildDBAdapterV0(handle, tablePrefix, true);
 		}
 		try {
-			return new ParentChildDBAdapterV0(handle, false);
+			return new ParentChildDBAdapterV0(handle, tablePrefix, false);
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			ParentChildAdapter adapter = findReadOnlyAdapter(handle);
-			if (openMode == DBConstants.UPGRADE) {
-				adapter = upgrade(handle, adapter);
+			if (openMode == OpenMode.UPGRADE) {
+				adapter = upgrade(handle, adapter, tablePrefix);
 			}
 			return adapter;
 		}
 	}
 
-	static ParentChildAdapter findReadOnlyAdapter(DBHandle handle) {
+	private static ParentChildAdapter findReadOnlyAdapter(DBHandle handle) {
 		return new ParentChildDBAdapterNoTable(handle);
 	}
 
-	static ParentChildAdapter upgrade(DBHandle handle, ParentChildAdapter oldAdapter)
-			throws VersionException, IOException {
+	private static ParentChildAdapter upgrade(DBHandle handle, ParentChildAdapter oldAdapter,
+			String tablePrefix) throws VersionException, IOException {
 
-		ParentChildDBAdapterV0 adapter = new ParentChildDBAdapterV0(handle, true);
+		ParentChildDBAdapterV0 adapter = new ParentChildDBAdapterV0(handle, tablePrefix, true);
 		adapter.setNeedsInitializing();
 		return adapter;
 	}
@@ -73,6 +81,16 @@ abstract class ParentChildAdapter {
 	abstract void removeRecord(long parentID, long childID) throws IOException;
 
 	/**
+	 * Get the unique set of child IDs associated with the specified parent ID.
+	 * Since a parent may have duplicate parent-child records, this method
+	 * avoids returning the same child more than once.
+	 * @param parentID parent datatype ID
+	 * @return set of child datatype IDs
+	 * @throws IOException if a DB IO error occurs
+	 */
+	abstract Set<Long> getChildIds(long parentID) throws IOException;
+
+	/**
 	 * Get the unique set of parent ID associated with the specified childID.
 	 * Since composite parents may have duplicate parent-child records, this method
 	 * avoids returning the same parent more than once.
@@ -81,6 +99,14 @@ abstract class ParentChildAdapter {
 	 * @throws IOException if a DB IO error occurs
 	 */
 	abstract Set<Long> getParentIds(long childID) throws IOException;
+
+	/** 
+	 * Determine if there is one or more parents associated with the specified childID.
+	 * @param childID child datatype ID
+	 * @return true if a parent was identified, else false
+	 * @throws IOException if a DB IO error occurs
+	 */
+	abstract boolean hasParent(long childID) throws IOException;
 
 	abstract void removeAllRecordsForParent(long parentID) throws IOException;
 

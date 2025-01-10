@@ -5,9 +5,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,34 +17,45 @@
 #include "block.hh"
 #include "funcdata.hh"
 
-/// The edge is saved assuming we already know what block we are in
-/// \param s is the output stream
-void BlockEdge::saveXml(ostream &s) const
+namespace ghidra {
+
+AttributeId ATTRIB_ALTINDEX = AttributeId("altindex",75);
+AttributeId ATTRIB_DEPTH = AttributeId("depth",76);
+AttributeId ATTRIB_END = AttributeId("end",77);
+AttributeId ATTRIB_OPCODE = AttributeId("opcode",78);
+AttributeId ATTRIB_REV = AttributeId("rev",79);
+
+ElementId ELEM_BHEAD = ElementId("bhead",102);
+ElementId ELEM_BLOCK = ElementId("block",103);
+ElementId ELEM_BLOCKEDGE = ElementId("blockedge",104);
+ElementId ELEM_EDGE = ElementId("edge",105);
+
+/// The edge is saved assuming we already know what block we are in.
+/// \param encoder is the stream encoder
+void BlockEdge::encode(Encoder &encoder) const
 
 {
-  s << "<edge";
+  encoder.openElement(ELEM_EDGE);
   // We are not saving label currently
-  a_v_i(s,"end",point->getIndex());		// Reference to other end of edge
-  a_v_i(s,"rev",reverse_index);			// Position within other blocks edgelist
-  s << "/>\n";
+  encoder.writeSignedInteger(ATTRIB_END, point->getIndex());	// Reference to other end of edge
+  encoder.writeSignedInteger(ATTRIB_REV, reverse_index);	// Position within other blocks edgelist
+  encoder.closeElement(ELEM_EDGE);
 }
 
-/// \param el is the \<edge> tag
+/// Parse an \<edge> element
+/// \param decoder is the stream decoder
 /// \param resolver is used to cross-reference the edge's FlowBlock endpoints
-void BlockEdge::restoreXml(const Element *el,BlockMap &resolver)
+void BlockEdge::decode(Decoder &decoder,BlockMap &resolver)
 
 {
+  uint4 elemId = decoder.openElement(ELEM_EDGE);
   label = 0;		// Tag does not currently contain info about label
-  int4 endIndex;
-  istringstream s(el->getAttributeValue("end"));
-  s.unsetf(ios::dec | ios::hex | ios::oct);
-  s >> endIndex;
+  int4 endIndex = decoder.readSignedInteger(ATTRIB_END);
   point = resolver.findLevelBlock(endIndex);
   if (point == (FlowBlock *)0)
     throw LowlevelError("Bad serialized edge in block graph");
-  istringstream s2(el->getAttributeValue("rev"));
-  s2.unsetf(ios::dec | ios::hex | ios::oct);
-  s2 >> reverse_index;
+  reverse_index = decoder.readSignedInteger(ATTRIB_REV);
+  decoder.closeElement(elemId);
 }
 
 FlowBlock::FlowBlock(void)
@@ -68,14 +79,15 @@ void FlowBlock::addInEdge(FlowBlock *b,uint4 lab)
   b->outofthis.push_back(BlockEdge(this,lab,brev));
 }
 
-/// \param el is the \<edge> element
+/// Parse the next \<edge> element in the stream
+/// \param decoder is the stream decoder
 /// \param resolver is used to resolve block references
-void FlowBlock::restoreNextInEdge(const Element *el,BlockMap &resolver)
+void FlowBlock::decodeNextInEdge(Decoder &decoder,BlockMap &resolver)
 
 {
   intothis.emplace_back();
   BlockEdge &inedge(intothis.back());
-  inedge.restoreXml(el,resolver);
+  inedge.decode(decoder,resolver);
   while(inedge.point->outofthis.size() <= inedge.reverse_index)
     inedge.point->outofthis.emplace_back();
   BlockEdge &outedge(inedge.point->outofthis[inedge.reverse_index]);
@@ -301,6 +313,18 @@ void FlowBlock::setGotoBranch(int4 i)
   outofthis[i].point->flags |= f_interior_gotoin;
 }
 
+/// The switch can have exactly 1 default edge, so we make sure other edges are not marked.
+/// \param pos is the index of the \e out edge that should be the default
+void FlowBlock::setDefaultSwitch(int4 pos)
+
+{
+  for(int4 i=0;i<outofthis.size();++i) {
+    if (isDefaultBranch(i))
+      clearOutEdgeFlag(i, f_defaultswitch_edge);	// Clear any previous flag
+  }
+  setOutEdgeFlag(pos,f_defaultswitch_edge);
+}
+
 /// \b return \b true if block is the target of a jump
 bool FlowBlock::isJumpTarget(void) const
 
@@ -383,9 +407,15 @@ bool FlowBlock::restrictedByConditional(const FlowBlock *cond) const
 {
   if (sizeIn() == 1) return true;	// Its impossible for any path to come through sibling to this
   if (getImmedDom() != cond) return false;	// This is not dominated by conditional block at all
+  bool seenCond = false;
   for(int4 i=0;i<sizeIn();++i) {
     const FlowBlock *inBlock = getIn(i);
-    if (inBlock == cond) continue;	// The unique edge from cond to this
+    if (inBlock == cond) {
+      if (seenCond)
+	return false;			// Coming in from cond block on multiple direct edges
+      seenCond = true;
+      continue;
+    }
     while(inBlock != this) {
       if (inBlock == cond) return false;	// Must have come through sibling
       inBlock = inBlock->getImmedDom();
@@ -609,7 +639,7 @@ JumpTable *FlowBlock::getJumptable(void) const
 }
 
 /// Given a string describing a FlowBlock type, return the block_type.
-/// This is currently only used by the restoreXml() process.
+/// This is currently only used by the decode() process.
 /// TODO: Fill in the remaining names and types
 /// \param nm is the name string
 /// \return the corresponding block_type
@@ -782,6 +812,37 @@ FlowBlock *FlowBlock::findCommonBlock(const vector<FlowBlock *> &blockSet)
   for(int4 i=0;i<markedSet.size();++i)
     markedSet[i]->clearMark();
   return res;
+}
+
+/// \brief Find conditional block that decides between the given control-flow edges
+///
+/// There must be a unique path from the conditional block through the first edge, and
+/// a second unique path through the second edge. Otherwise null is returned.  The index of the
+/// output block from the conditional that flows to the first edge is passed back.
+/// \param bl1 is the destination block for the first given control-flow edge
+/// \param edge1 is the input slot for the first edge
+/// \param bl2 is the destination block for the second given control-flow edge
+/// \param edge2 is the input slot for the second edge
+/// \param slot1 will hold the output slot leading to the first control-flow edge
+/// \return the conditional FlowBlock if it exists or null
+FlowBlock *FlowBlock::findCondition(FlowBlock *bl1,int4 edge1,FlowBlock *bl2,int4 edge2,int4 &slot1)
+
+{
+  FlowBlock *cond = bl1->getIn(edge1);
+  while (cond->sizeOut() != 2) {
+    if (cond->sizeOut() != 1) return (FlowBlock *)0;
+    bl1 = cond;
+    edge1 = 0;
+    cond = bl1->getIn(0);
+  }
+
+  while (cond != bl2->getIn(edge2)) {
+    bl2 = bl2->getIn(edge2);
+    if (bl2->sizeOut() != 1) return (FlowBlock *)0;
+    edge2 = 0;
+  }
+  slot1 = bl1->getInRevIndex(edge1);
+  return cond;
 }
 
 /// Add the given FlowBlock to the list and make \b this the parent
@@ -1236,6 +1297,14 @@ void BlockGraph::printRaw(ostream &s) const
     (*iter)->printRaw(s);
 }
 
+PcodeOp *BlockGraph::firstOp(void) const
+
+{
+  if (getSize() == 0)
+    return (PcodeOp *)0;
+  return getBlock(0)->firstOp();
+}
+
 FlowBlock *BlockGraph::nextFlowAfter(const FlowBlock *bl) const
 
 {
@@ -1274,14 +1343,14 @@ void BlockGraph::finalizePrinting(Funcdata &data) const
     (*iter)->finalizePrinting(data);
 }
 
-void BlockGraph::saveXmlBody(ostream &s) const
+void BlockGraph::encodeBody(Encoder &encoder) const
 
 {
-  FlowBlock::saveXmlBody(s);
+  FlowBlock::encodeBody(encoder);
   for(int4 i=0;i<list.size();++i) {
     FlowBlock *bl = list[i];
-    s << "<bhead";
-    a_v_i(s,"index",bl->getIndex());
+    encoder.openElement(ELEM_BHEAD);
+    encoder.writeSignedInteger(ATTRIB_INDEX, bl->getIndex());
     FlowBlock::block_type bt = bl->getType();
     string nm;
     if (bt == FlowBlock::t_if) {
@@ -1295,54 +1364,46 @@ void BlockGraph::saveXmlBody(ostream &s) const
     }
     else
       nm = FlowBlock::typeToName(bt);
-    a_v(s,"type",nm);
-    s << "/>\n";
+    encoder.writeString(ATTRIB_TYPE, nm);
+    encoder.closeElement(ELEM_BHEAD);
   }
   for(int4 i=0;i<list.size();++i)
-    list[i]->saveXml(s);
+    list[i]->encode(encoder);
 }
 
-void BlockGraph::restoreXmlBody(List::const_iterator &iter,List::const_iterator enditer,BlockMap &resolver)
+void BlockGraph::decodeBody(Decoder &decoder)
 
 {
-  BlockMap newresolver(resolver);
-  FlowBlock::restoreXmlBody(iter,enditer,newresolver);
+  BlockMap newresolver;
   vector<FlowBlock *> tmplist;
 
-  while(iter != enditer) {
-    const Element *el = *iter;
-    if (el->getName() != "bhead") break;
-    ++iter;
-    int4 newindex;
-    istringstream s(el->getAttributeValue("index"));
-    s.unsetf(ios::dec | ios::hex | ios::oct);
-    s >> newindex;
-    const string &nm( el->getAttributeValue("type") );
-    FlowBlock *bl = newresolver.createBlock(nm);
+  for(;;) {
+    uint4 subId = decoder.peekElement();
+    if (subId != ELEM_BHEAD) break;
+    decoder.openElement();
+    int4 newindex = decoder.readSignedInteger(ATTRIB_INDEX);
+    FlowBlock *bl = newresolver.createBlock(decoder.readString(ATTRIB_TYPE));
     bl->index = newindex;	// Need to set index here for sort
     tmplist.push_back(bl);
+    decoder.closeElement(subId);
   }
   newresolver.sortList();
 
   for(int4 i=0;i<tmplist.size();++i) {
-    if (iter == enditer)
-      throw LowlevelError("Bad BlockGraph xml");
     FlowBlock *bl = tmplist[i];
-    bl->restoreXml(*iter,newresolver);
+    bl->decode(decoder,newresolver);
     addBlock(bl);
-    ++iter;
   }
 }
 
-/// This is currently just a wrapper around the FlowBlock::restoreXml()
-/// that sets of the BlockMap resolver
-/// \param el is the root \<block> tag
-/// \param m is the address space manager
-void BlockGraph::restoreXml(const Element *el,const AddrSpaceManager *m)
+/// Parse a \<block> element.  This is currently just a wrapper around the
+/// FlowBlock::decode() that sets of the BlockMap resolver
+/// \param decoder is the stream decoder
+void BlockGraph::decode(Decoder &decoder)
 
 {
-  BlockMap resolver(m);
-  FlowBlock::restoreXml(el,resolver);
+  BlockMap resolver;
+  FlowBlock::decode(decoder,resolver);
   // Restore goto references here
 }
 
@@ -1644,13 +1705,20 @@ BlockMultiGoto *BlockGraph::newBlockMultiGoto(FlowBlock *bl,int4 outedge)
   }
   else {
     ret = new BlockMultiGoto(bl);
+    int4 origSizeOut = bl->sizeOut();
     vector<FlowBlock *> nodes;
     nodes.push_back(bl);
     identifyInternal(ret,nodes);
     addBlock(ret);
     ret->addEdge(targetbl);
-    if (targetbl != bl)		// If the target is itself, edge is already removed by identifyInternal
-      removeEdge(ret,targetbl);
+    if (targetbl != bl)	{
+      if (ret->sizeOut() != origSizeOut) {	// If there are less out edges after identifyInternal
+	// it must have collapsed a self edge (switch out edges are already deduped)
+	ret->forceOutputNum(ret->sizeOut()+1);	// preserve the self edge (it is not the goto edge)
+      }
+      removeEdge(ret,targetbl);	// Remove the edge to the goto target
+    }
+    // else -- the goto edge is a self edge and will get removed by identifyInternal
     if (isdefaultedge)
       ret->setDefaultGoto();
   }
@@ -2239,6 +2307,13 @@ Address BlockBasic::getStop(void) const
   return range->getLastAddr();
 }
 
+PcodeOp *BlockBasic::firstOp(void) const
+
+{
+  if (op.empty()) return (PcodeOp *)0;
+  return (PcodeOp *)op.front();
+}
+
 PcodeOp *BlockBasic::lastOp(void) const
 
 {
@@ -2270,7 +2345,7 @@ int4 BlockBasic::flipInPlaceTest(vector<PcodeOp *> &fliplist) const
   PcodeOp *lastop = op.back();
   if (lastop->code() != CPUI_CBRANCH)
     return 2;
-  return opFlipInPlaceTest(lastop,fliplist);
+  return Funcdata::opFlipInPlaceTest(lastop,fliplist);
 }
 
 void BlockBasic::flipInPlaceExecute(void)
@@ -2341,77 +2416,70 @@ bool BlockBasic::isComplex(void) const
   return false;
 }
 
-/// \param s is the output stream
-void FlowBlock::saveXmlHeader(ostream &s) const
+/// \param encoder is the stream encoder
+void FlowBlock::encodeHeader(Encoder &encoder) const
 
 {
-  a_v_i(s,"index",index);
+  encoder.writeSignedInteger(ATTRIB_INDEX, index);
 }
 
-/// \param el is the XML element to pull attributes from
-void FlowBlock::restoreXmlHeader(const Element *el)
+/// \param decoder is the stream decoder to pull attributes from
+void FlowBlock::decodeHeader(Decoder &decoder)
 
 {
-  istringstream s(el->getAttributeValue("index"));
-  s.unsetf(ios::dec | ios::hex | ios::oct);
-  s >> index;
+  index = decoder.readSignedInteger(ATTRIB_INDEX);
 }
 
-/// Write \<edge> tags to stream
-/// \param s is the output stream
-void FlowBlock::saveXmlEdges(ostream &s) const
+/// Write \<edge> element to a stream
+/// \param encoder is the stream encoder
+void FlowBlock::encodeEdges(Encoder &encoder) const
 
 {
   for(int4 i=0;i<intothis.size();++i) {
-    intothis[i].saveXml(s);
+    intothis[i].encode(encoder);
   }
 }
 
-/// \brief Restore edges from an XML stream
+/// \brief Restore edges from an encoded stream
 ///
-/// \param iter is an iterator to the \<edge> tags
-/// \param enditer marks the end of the list of tags
+/// \param decoder is the stream decoder
 /// \param resolver is used to recover FlowBlock cross-references
-void FlowBlock::restoreXmlEdges(List::const_iterator &iter,List::const_iterator enditer,BlockMap &resolver)
+void FlowBlock::decodeEdges(Decoder &decoder,BlockMap &resolver)
 
 {
-  while(iter != enditer) {
-    const Element *el = *iter;
-    if (el->getName() != "edge")
-      return;
-    ++iter;
-    restoreNextInEdge(el,resolver);
+  for(;;) {
+    uint4 subId = decoder.peekElement();
+    if (subId != ELEM_EDGE)
+      break;
+    decodeNextInEdge(decoder,resolver);
   }
 }
 
-/// Serialize \b this and all its sub-components as an XML \<block> tag.
-/// \param s is the output stream
-void FlowBlock::saveXml(ostream &s) const
+/// Encode \b this and all its sub-components as a \<block> element.
+/// \param encoder is the stream encoder
+void FlowBlock::encode(Encoder &encoder) const
 
 {
-  s << "<block";
-  saveXmlHeader(s);
-  s << ">\n";
-  saveXmlBody(s);
-  saveXmlEdges(s);
-  s << "</block>\n";
+  encoder.openElement(ELEM_BLOCK);
+  encodeHeader(encoder);
+  encodeBody(encoder);
+  encodeEdges(encoder);
+  encoder.closeElement(ELEM_BLOCK);
 }
 
-/// Recover \b this and all it sub-components from an XML \<block> tag.
+/// Recover \b this and all it sub-components from a \<block> element.
 ///
 /// This will construct all the sub-components using \b resolver as a factory.
-/// \param el is the root XML element
+/// \param decoder is the stream decoder
 /// \param resolver acts as a factory and resolves cross-references
-void FlowBlock::restoreXml(const Element *el,BlockMap &resolver)
+void FlowBlock::decode(Decoder &decoder,BlockMap &resolver)
 
 {
-  restoreXmlHeader(el);
-  const List &list(el->getChildren());
-  List::const_iterator iter;
-
-  iter = list.begin();
-  restoreXmlBody(iter,list.end(),resolver);
-  restoreXmlEdges(iter,list.end(),resolver);
+  uint4 elemId = decoder.openElement(ELEM_BLOCK);
+  decodeHeader(decoder);
+  decodeBody(decoder);
+  decodeEdges(decoder,resolver);
+  decoder.closeElement(elemId);
 }
 
 /// If there are two branches, pick the fall-thru branch
@@ -2506,9 +2574,16 @@ bool BlockBasic::isDoNothing(void) const
   if (sizeIn() == 0) return false; // A block that does nothing but
 				// is a starting block, may need to be a
 				// placeholder for global(persistent) vars
-  if ((sizeIn()==1)&&(getIn(0)->isSwitchOut())) {
-    if (getOut(0)->sizeIn() > 1)
-      return false;		// Don't remove switch targets
+  for(int4 i=0;i<sizeIn();++i) {
+    const FlowBlock *switchbl = getIn(i);
+    if (!switchbl->isSwitchOut()) continue;
+    if (switchbl->sizeOut() > 1) {
+      // This block is a switch target
+      if (getOut(0)->sizeIn() > 1) {	// Multiple edges coming together
+					// Switch edge may still be propagating a unique value
+	return false;			// Don't remove it
+      }
+    }
   }
   PcodeOp *lastop = lastOp();
   if ((lastop != (PcodeOp *)0)&&(lastop->code()==CPUI_BRANCHIND))
@@ -2548,17 +2623,16 @@ void BlockBasic::setOrder(void)
   }
 }
 
-void BlockBasic::saveXmlBody(ostream &s) const
+void BlockBasic::encodeBody(Encoder &encoder) const
 
 {
-  cover.saveXml(s);
+  cover.encode(encoder);
 }
 
-void BlockBasic::restoreXmlBody(List::const_iterator &iter,List::const_iterator enditer,BlockMap &resolver)
+void BlockBasic::decodeBody(Decoder &decoder)
 
 {
-  cover.restoreXml(*iter, resolver.getAddressManager());
-  ++iter;
+  cover.decode(decoder);
 }
 
 void BlockBasic::printHeader(ostream &s) const
@@ -2584,30 +2658,133 @@ void BlockBasic::printRaw(ostream &s) const
   }
 }
 
-/// \brief Check if there is meaningful activity between two branch instructions
+/// \brief Check for values created in \b this block that flow outside the block.
 ///
-/// The first branch is assumed to be a CBRANCH one edge of which flows into
-/// the other branch. The flow can be through 1 or 2 blocks.  If either block
-/// performs an operation other than MULTIEQUAL, INDIRECT (or the branch), then
-/// return \b false.
-/// \param first is the CBRANCH operation
-/// \param path is the index of the edge to follow to the other branch
-/// \param last is the other branch operation
-/// \return \b true if there is no meaningful activity
-bool BlockBasic::noInterveningStatement(PcodeOp *first,int4 path,PcodeOp *last)
+/// The block can calculate a value for a BRANCHIND or CBRANCH and can copy values and this method will still
+/// return \b true.  But calculating any value used outside the block, writing to an addressable location,
+/// or performing a CALL or STORE causes the method to return \b false.
+/// \return \b true if no value is created that can be used outside of the block
+bool BlockBasic::noInterveningStatement(void) const
 
 {
-  BlockBasic *curbl = (BlockBasic *)first->getParent()->getOut(path);
-  for(int4 i=0;i<2;++i) {
-    if (!curbl->hasOnlyMarkers()) return false;
-    if (curbl != last->getParent()) {
-      if (curbl->sizeOut() != 1) return false; // Intervening conditional branch
+  list<PcodeOp *>::const_iterator iter;
+  const PcodeOp *bop;
+  OpCode opc;
+
+  for(iter=op.begin();iter!=op.end();++iter) {
+    bop = *iter;
+    if (bop->isMarker()) continue;
+    if (bop->isBranch()) continue;
+    if (bop->getEvalType() == PcodeOp::special) {
+      if (bop->isCall())
+	return false;
+      opc = bop->code();
+      if (opc == CPUI_STORE || opc == CPUI_NEW)
+	return false;
     }
-    else
-      return true;
-    curbl = (BlockBasic *)curbl->getOut(0);
+    else {
+      opc = bop->code();
+      if (opc == CPUI_COPY || opc == CPUI_SUBPIECE)
+	continue;
+    }
+    const Varnode *outvn = bop->getOut();
+    if (outvn->isAddrTied())
+      return false;
+    list<PcodeOp *>::const_iterator iter = outvn->beginDescend();
+    while(iter!=outvn->endDescend()) {
+      PcodeOp *op = *iter;
+      if (op->getParent() != this)
+	return false;
+      ++iter;
+    }
   }
-  return false;
+  return true;
+}
+
+/// If there exists a CPUI_MULTIEQUAL PcodeOp in \b this basic block that takes the given exact list of Varnodes
+/// as its inputs, return that PcodeOp. Otherwise return null.
+/// \param varArray is the exact list of Varnodes
+/// \return the MULTIEQUAL or null
+PcodeOp *BlockBasic::findMultiequal(const vector<Varnode *> &varArray)
+
+{
+  Varnode *vn = varArray[0];
+  PcodeOp *op;
+  list<PcodeOp *>::const_iterator iter = vn->beginDescend();
+  for(;;) {
+    op = *iter;
+    if (op->code() == CPUI_MULTIEQUAL && op->getParent() == this)
+      break;
+    ++iter;
+    if (iter == vn->endDescend())
+      return (PcodeOp *)0;
+  }
+  for(int4 i=0;i<op->numInput();++i) {
+    if (op->getIn(i) != varArray[i])
+      return (PcodeOp *)0;
+  }
+  return op;
+}
+
+/// \brief Get the earliest use/read of a Varnode in \b this basic block
+///
+/// \param vn is the Varnode to search for
+/// \return the earliest PcodeOp reading the Varnode or NULL
+PcodeOp *BlockBasic::earliestUse(Varnode *vn)
+
+{
+  list<PcodeOp *>::const_iterator iter;
+  PcodeOp *res = (PcodeOp *)0;
+
+  for(iter=vn->beginDescend();iter!=vn->endDescend();++iter) {
+    PcodeOp *op = *iter;
+    if (op->getParent() != this) continue;
+    if (res == (PcodeOp *)0)
+      res = op;
+    else {
+      if (op->getSeqNum().getOrder() < res->getSeqNum().getOrder())
+	res = op;
+    }
+  }
+  return res;
+}
+
+/// Each Varnode must be defined by a PcodeOp with the same OpCode.  The Varnode, within the array, is replaced
+/// with the input Varnode in the indicated slot.
+/// \param varArray is the given array of Varnodes
+/// \param slot is the indicated slot
+/// \return \b true if all the Varnodes are defined in the same way
+bool BlockBasic::liftVerifyUnroll(vector<Varnode *> &varArray,int4 slot)
+
+{
+  OpCode opc;
+  Varnode *cvn;
+  Varnode *vn = varArray[0];
+  if (!vn->isWritten()) return false;
+  PcodeOp *op = vn->getDef();
+  opc = op->code();
+  if (op->numInput() == 2) {
+    cvn = op->getIn(1-slot);
+    if (!cvn->isConstant()) return false;
+  }
+  else
+    cvn = (Varnode *)0;
+  varArray[0] = op->getIn(slot);
+  for(int4 i=1;i<varArray.size();++i) {
+    vn = varArray[i];
+    if (!vn->isWritten()) return false;
+    op = vn->getDef();
+    if (op->code() != opc) return false;
+
+    if (cvn != (Varnode *)0) {
+      Varnode *cvn2 = op->getIn(1-slot);
+      if (!cvn2->isConstant()) return false;
+      if (cvn->getSize() != cvn2->getSize()) return false;
+      if (cvn->getOffset() != cvn2->getOffset()) return false;
+    }
+    varArray[i] = op->getIn(slot);
+  }
+  return true;
 }
 
 void BlockCopy::printHeader(ostream &s) const
@@ -2623,12 +2800,12 @@ void BlockCopy::printTree(ostream &s,int4 level) const
   copy->printTree(s,level);
 }
 
-void BlockCopy::saveXmlHeader(ostream &s) const
+void BlockCopy::encodeHeader(Encoder &encoder) const
 
 {
-  FlowBlock::saveXmlHeader(s);
+  FlowBlock::encodeHeader(encoder);
   int4 altindex = copy->getIndex();
-  a_v_i(s,"altindex",altindex);
+  encoder.writeSignedInteger(ATTRIB_ALTINDEX, altindex);
 }
 
 void BlockGoto::markUnstructured(void)
@@ -2680,17 +2857,17 @@ FlowBlock *BlockGoto::nextFlowAfter(const FlowBlock *bl) const
   return getGotoTarget()->getFrontLeaf();
 }
 
-void BlockGoto::saveXmlBody(ostream &s) const
+void BlockGoto::encodeBody(Encoder &encoder) const
 
 {
-  BlockGraph::saveXmlBody(s);
-  s << "<target";
+  BlockGraph::encodeBody(encoder);
+  encoder.openElement(ELEM_TARGET);
   const FlowBlock *leaf = gototarget->getFrontLeaf();
   int4 depth = gototarget->calcDepth(leaf);
-  a_v_i(s,"index",leaf->getIndex());
-  a_v_i(s,"depth",depth);
-  a_v_u(s,"type",gototype);
-  s << "/>\n";
+  encoder.writeSignedInteger(ATTRIB_INDEX, leaf->getIndex());
+  encoder.writeSignedInteger(ATTRIB_DEPTH, depth);
+  encoder.writeUnsignedInteger(ATTRIB_TYPE, gototype);
+  encoder.closeElement(ELEM_TARGET);
 }
 
 void BlockMultiGoto::scopeBreak(int4 curexit,int4 curloopexit)
@@ -2713,18 +2890,18 @@ FlowBlock *BlockMultiGoto::nextFlowAfter(const FlowBlock *bl) const
   return (FlowBlock *)0;
 } 
 
-void BlockMultiGoto::saveXmlBody(ostream &s) const
+void BlockMultiGoto::encodeBody(Encoder &encoder) const
 
 {
-  BlockGraph::saveXmlBody(s);
+  BlockGraph::encodeBody(encoder);
   for(int4 i=0;i<gotoedges.size();++i) {
     FlowBlock *gototarget = gotoedges[i];
     const FlowBlock *leaf = gototarget->getFrontLeaf();
     int4 depth = gototarget->calcDepth(leaf);
-    s << "<target";
-    a_v_i(s,"index",leaf->getIndex());
-    a_v_i(s,"depth",depth);
-    s << "/>\n";
+    encoder.openElement(ELEM_TARGET);
+    encoder.writeSignedInteger(ATTRIB_INDEX, leaf->getIndex());
+    encoder.writeSignedInteger(ATTRIB_DEPTH, depth);
+    encoder.closeElement(ELEM_TARGET);
   }
 }
 
@@ -2834,12 +3011,12 @@ FlowBlock *BlockCondition::nextFlowAfter(const FlowBlock *bl) const
   return (FlowBlock *)0;	// Do not know where flow goes
 }
 
-void BlockCondition::saveXmlHeader(ostream &s) const
+void BlockCondition::encodeHeader(Encoder &encoder) const
 
 {
-  BlockGraph::saveXmlHeader(s);
+  BlockGraph::encodeHeader(encoder);
   string nm(get_opname(opc));
-  a_v(s,"opcode",nm);
+  encoder.writeString(ATTRIB_OPCODE, nm);
 }
 
 void BlockIf::markUnstructured(void)
@@ -2881,7 +3058,7 @@ bool BlockIf::preferComplement(Funcdata &data)
   if (0 != split->flipInPlaceTest(fliplist))
     return false;
   split->flipInPlaceExecute();
-  opFlipInPlaceExecute(data,fliplist);
+  data.opFlipInPlaceExecute(fliplist);
   swapBlocks(1,2);
   return true;
 }
@@ -2912,18 +3089,18 @@ FlowBlock *BlockIf::nextFlowAfter(const FlowBlock *bl) const
   return getParent()->nextFlowAfter(this);
 }
 
-void BlockIf::saveXmlBody(ostream &s) const
+void BlockIf::encodeBody(Encoder &encoder) const
 
 {
-  BlockGraph::saveXmlBody(s);
+  BlockGraph::encodeBody(encoder);
   if (getSize() == 1) {		// If this is a if GOTO block
     const FlowBlock *leaf = gototarget->getFrontLeaf();
     int4 depth = gototarget->calcDepth(leaf);
-    s << "<target";
-    a_v_i(s,"index",leaf->getIndex());
-    a_v_i(s,"depth",depth);
-    a_v_u(s,"type",gototype);
-    s << "/>\n";
+    encoder.openElement(ELEM_TARGET);
+    encoder.writeSignedInteger(ATTRIB_INDEX, leaf->getIndex());
+    encoder.writeSignedInteger(ATTRIB_DEPTH, depth);
+    encoder.writeUnsignedInteger(ATTRIB_TYPE, gototype);
+    encoder.closeElement(ELEM_TARGET);
   }
 }
 
@@ -3375,7 +3552,7 @@ const Datatype *BlockSwitch::getSwitchType(void) const
 
 {
   PcodeOp *op = jump->getIndirectOp();
-  return op->getIn(0)->getHigh()->getType();
+  return op->getIn(0)->getHighTypeReadFacing(op);
 }
 
 void BlockSwitch::markUnstructured(void)
@@ -3419,6 +3596,11 @@ FlowBlock *BlockSwitch::nextFlowAfter(const FlowBlock *bl) const
 {
   if (getBlock(0) == bl)
     return (FlowBlock *)0;	// Don't know what will execute
+
+  // Can only evaluate this if bl is a case block that falls through to another case block.
+  // Otherwise there is a break statement in the flow
+  if (bl->getType() != t_goto)	// Fallthru must be a goto block
+    return (FlowBlock *)0;
   int4 i;
   // Look for block to find flow after
   for(i=0;i<caseblocks.size();++i)
@@ -3431,12 +3613,6 @@ FlowBlock *BlockSwitch::nextFlowAfter(const FlowBlock *bl) const
   // Otherwise we are at last block of switch, flow is to exit of switch
   if (getParent() == (const FlowBlock *)0) return (FlowBlock *)0;
   return getParent()->nextFlowAfter(this);
-}
-
-BlockMap::BlockMap(const BlockMap &op2)
-
-{
-  manage = op2.manage;
 }
 
 /// \param bt is the block_type
@@ -3498,3 +3674,5 @@ FlowBlock *BlockMap::createBlock(const string &name)
   sortlist.push_back(bl);
   return bl;
 }
+
+} // End namespace ghidra

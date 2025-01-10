@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,15 @@
  */
 /// \file testfunction.hh
 /// \brief Framework for decompiler data driven single function tests
-#ifndef __TESTFUNCTION__
-#define __TESTFUNCTION__
+#ifndef __TESTFUNCTION_HH__
+#define __TESTFUNCTION_HH__
 
 #include "ifaceterm.hh"
 #include "error.hh"
 #include "xml.hh"
 #include <regex>
+
+namespace ghidra {
 
 class IfaceDecompData;
 
@@ -34,7 +36,8 @@ class FunctionTestProperty {
   int4 minimumMatch;		///< Minimum number of times property is expected to match
   int4 maximumMatch;		///< Maximum number of times property is expected to match
   string name;			///< Name of the test, to be printed in test summaries
-  regex pattern;		///< Regular expression to match against a line of output
+  vector<std::regex> pattern;	///< Regular expression(s) to match against a line(s) of output
+  mutable uint4 patnum;	///< Index of current pattern to match against
   mutable uint4 count;		///< Number of times regular expression has been seen
 public:
   string getName(void) const { return name; }	///< Get the name of the property
@@ -74,6 +77,7 @@ class FunctionTestCollection {
   mutable int4 numTestsApplied;		///< Count of tests that were executed
   mutable int4 numTestsSucceeded;	///< Count of tests that passed
   void clear(void);		///< Clear any previous architecture and function
+  static string stripNewlines(const string &ref);	///< Convert any \e newline character to a \e space
   void restoreXmlCommands(const Element *el);	///< Reconstruct commands from an XML tag
   void buildProgram(DocumentStorage &store);	///< Build program (Architecture) from \<binaryimage> tag
   void startTests(void) const;	///< Initialize each FunctionTestProperty
@@ -91,7 +95,8 @@ public:
   void restoreXml(DocumentStorage &store,const Element *el);	///< Load tests from a \<decompilertest> tag.
   void restoreXmlOldForm(DocumentStorage &store,const Element *el);	///< Load tests from \<binaryimage> tag.
   void runTests(list<string> &lateStream);	///< Run the script and perform the tests
-  static void runTestFiles(const vector<string> &testFiles,ostream &s);	///< Run tests for each listed file
+  static int runTestFiles(const vector<string> &testFiles,ostream &s);	///< Run tests for each listed file
 };
 
+} // End namespace ghidra
 #endif

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,6 +26,7 @@ import javax.swing.table.TableCellEditor;
 
 import docking.widgets.DropDownSelectionTextField;
 import docking.widgets.table.CellEditorUtils;
+import docking.widgets.table.FocusableEditor;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.util.datatype.DataTypeSelectionEditor;
 import ghidra.framework.plugintool.PluginTool;
@@ -34,13 +35,14 @@ import ghidra.util.Swing;
 import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 
 public class DataTypeTableCellEditor extends AbstractCellEditor
-		implements TableCellEditor {
+		implements TableCellEditor, FocusableEditor {
 	private final PluginTool tool;
 	private DataTypeManagerService service;
 	private JTable table;
 
 	private JPanel editorPanel;
 	private DataTypeSelectionEditor editor;
+	private DropDownSelectionTextField<DataType> textField;
 
 	private DataType dt;
 
@@ -119,24 +121,24 @@ public class DataTypeTableCellEditor extends AbstractCellEditor
 		return editorPanel;
 	}
 
+	@Override
+	public void focusEditor() {
+		textField.requestFocusInWindow();
+	}
+
 	protected void init(int row, int column) {
 		updateService();
-		editor = new DataTypeSelectionEditor(service, getAllowed(row, column));
-		editor.setPreferredDataTypeManager(getPreferredDataTypeManager(row, column));
+		editor = new DataTypeSelectionEditor(getPreferredDataTypeManager(row, column), service,
+			getAllowed(row, column));
 		editor.setTabCommitsEdit(true);
 		editor.setConsumeEnterKeyPress(false);
 
-		final DropDownSelectionTextField<DataType> textField = editor.getDropDownTextField();
+		textField = editor.getDropDownTextField();
 		textField.setBorder(UIManager.getBorder("Table.focusCellHighlightBorder"));
 		CellEditorUtils.onOneFocus(textField, () -> textField.selectAll());
 
 		editor.addCellEditorListener(cellEditorListener);
-		editorPanel = new JPanel(new BorderLayout()) {
-			@Override
-			public void requestFocus() {
-				textField.requestFocus();
-			}
-		};
+		editorPanel = new JPanel(new BorderLayout());
 		editorPanel.add(textField, BorderLayout.CENTER);
 		editorPanel.add(dataTypeChooserButton, BorderLayout.EAST);
 	}

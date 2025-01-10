@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,12 @@
  */
 package ghidra.app.util.bin.format.pe;
 
-import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.*;
-import ghidra.program.model.data.*;
-import ghidra.util.*;
-import ghidra.util.exception.*;
+import java.io.IOException;
 
-import java.io.*;
+import ghidra.app.util.bin.*;
+import ghidra.program.model.data.*;
+import ghidra.util.DataConverter;
+import ghidra.util.exception.DuplicateNameException;
 
 /**
  * A class to represent the <code>IMAGE_IMPORT_BY_NAME</code>
@@ -42,22 +41,9 @@ public class ImportByName implements StructConverter, ByteArrayConverter {
     private short  hint;
     private String name;
 
-    static ImportByName createImportByName(
-            FactoryBundledWithBinaryReader reader, int index)
-            throws IOException {
-        ImportByName importByName = (ImportByName) reader.getFactory().create(ImportByName.class);
-        importByName.initImportByName(reader, index);
-        return importByName;
-    }
-
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public ImportByName() {}
-
-	private void initImportByName(FactoryBundledWithBinaryReader reader, int index) throws IOException {
-        hint = reader.readShort(index);
-        name = reader.readAsciiString(index+BinaryReader.SIZEOF_SHORT);
+	ImportByName(BinaryReader reader, int index) throws IOException {
+		hint = reader.readShort(index);
+		name = reader.readAsciiString(index + BinaryReader.SIZEOF_SHORT);
     }
 
 	/**
@@ -84,9 +70,7 @@ public class ImportByName implements StructConverter, ByteArrayConverter {
         return name;
     }
 
-	/**
-	 * @see ghidra.app.util.bin.StructConverter#toDataType()
-	 */
+	@Override
 	public DataType toDataType() throws DuplicateNameException {
 		int len = name.length()+1;
 		StructureDataType struct = new StructureDataType(NAME+"_"+len, 0);
@@ -96,9 +80,7 @@ public class ImportByName implements StructConverter, ByteArrayConverter {
 		return struct;
 	}
 
-	/**
-	 * @see ghidra.app.util.bin.ByteArrayConverter#toBytes(ghidra.util.DataConverter)
-	 */
+	@Override
 	public byte [] toBytes(DataConverter dc) {
 		byte [] bytes = new byte[getSizeOf()];
 		dc.getBytes(hint, bytes, 0);

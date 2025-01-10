@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -98,12 +98,10 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 		// if we get here, then no exception happened--good!
 	}
 
-	/**
+	/*
 	 * Test that askBytes method auto-populates dialog with value in .properties file.
 	 *
 	 * Also test that subsequent calls to the dialog show the last-used value.
-	 *
-	 * @throws Exception
 	 */
 	@Test
 	public void testAskBytes() throws Exception {
@@ -125,17 +123,21 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 	}
 
 	/*
-	 * Calling askProgram() would stacktrace if the user 1) didn't select a program in the 
+	 * Calling askProgram() would stacktrace if the user 1) didn't select a program in the
 	 * tree and then 2) pressed the OK button.
 	 */
 	@Test
 	public void testAskProgram_SCR8486() throws Exception {
 		createScript();
 
-		Program[] container = new Program[1];
+		AtomicReference<Program> container = new AtomicReference<>();
 		runSwing(() -> {
 			try {
-				container[0] = script.askProgram("Test - Pick Program");
+				Program p = script.askProgram("Test - Pick Program");
+				container.set(p);
+				if (p != null) {
+					p.release(this);
+				}
 			}
 			catch (Exception ioe) {
 				failWithException("Caught unexepected during askProgram()", ioe);
@@ -148,22 +150,22 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 		runSwing(() -> okButton.doClick());
 
 		// this test will fail if we encountered an exception
-		assertNull(container[0]);
+		assertNull(container.get());
 
 		runSwing(() -> dtd.close());
 	}
 
-	/* 
+	/*
 	 * For scripts with properties files in a different location (could be the case with subscripts),
-	 * tests that the .properties file is found in the default location and that the default value 
-	 * for the input field is provided by the .properties file in the alternate location. 
-	 * 
+	 * tests that the .properties file is found in the default location and that the default value
+	 * for the input field is provided by the .properties file in the alternate location.
+	 *
 	 * @throws Exception
 	 */
 	@Test
 	public void testAlternateLocationPropertiesFile() throws Exception {
 
-		// Create a temporary .properties file and set the potentialPropertiesFileLocs to look 
+		// Create a temporary .properties file and set the potentialPropertiesFileLocs to look
 		// in that location
 		String tempDirPath = AbstractGTest.getTestDirectoryPath();
 		File tempDir = new File(tempDirPath);
@@ -309,12 +311,10 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 		assertEquals(anotherTempFile, myFile[0]);
 	}
 
-	/**
+	/*
 	 * Test that askDirectory method auto-populates dialog with value in .properties file.
 	 *
 	 * Also test that subsequent calls to the dialog show the last-used value.
-	 *
-	 * @throws Exception
 	 */
 	@Test
 	public void testAskDirectory() throws Exception {
@@ -416,12 +416,10 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 		FileUtilities.deleteDir(anotherTempSubDir);
 	}
 
-	/**
+	/*
 	 * Test that askLanguage method auto-populates dialog with value in .properties file.
 	 *
 	 * Also test that subsequent calls to the dialog show the last-used value.
-	 *
-	 * @throws Exception
 	 */
 	@Test
 	public void testAskLanguage() throws Exception {
@@ -487,7 +485,7 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 
 	/*
 	 * Test that askInt method auto-populates dialog with value in .properties file.
-	 *	 
+	 *
 	 * Also test that subsequent calls to the dialog show the last-used value.
 	 */
 	@Test
@@ -628,11 +626,38 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 
 		createScript();
 
-		final String defaultValue = "a default value";
+		String defaultValue = "a default value";
 		String myString = ask_TextInput(() -> {
 			return script.askString("Default Test", "Enter a string here:", defaultValue);
 		});
 		assertEquals(defaultValue, myString);
+	}
+
+	@Test
+	public void testAskStringDefaultValue_DoNotReusePreviousValues() throws Exception {
+		createScript();
+
+		String defaultValue = "a default value";
+		String myString = ask_TextInput(() -> {
+			return script.askString("Default Test", "Enter a string here:", defaultValue);
+		});
+		assertEquals(defaultValue, myString);
+
+		script.setReusePreviousChoices(false);
+
+		String secondDefaultValue = "a new default value";
+		String secondString = ask_TextInput(() -> {
+			return script.askString("Default Test", "Enter a string here:", secondDefaultValue);
+		});
+		assertEquals(secondDefaultValue, secondString);
+
+		script.setReusePreviousChoices(true);
+
+		String thirdDefaultValue = "a third default value";
+		String thirdString = ask_TextInput(() -> {
+			return script.askString("Default Test", "Enter a string here:", thirdDefaultValue);
+		});
+		assertEquals(secondString, thirdString);
 	}
 
 	@Test
@@ -662,11 +687,9 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 		assertEquals(choice_eenie, chosen);
 	}
 
-	/**
+	/*
 	 * Test that askChoice method auto-populates dialog with user-supplied default value (in the
 	 * absence of a .properties file).
-	 *
-	 * @throws Exception
 	 */
 	@Test
 	public void testAskChoiceDefaultValue() throws Exception {
@@ -681,37 +704,37 @@ public class GhidraScriptAskMethodsTest extends AbstractGhidraHeadedIntegrationT
 		assertEquals(choices.get(choiceIndex), chosen);
 	}
 
-	// TODO test for askChoices()	
+	// TODO test for askChoices()
 
-	/* 
-	 * No test for either of the two versions of 'askChoices()" because it does not use either the 
-	 * the last-selected value or a .properties file value to pre-populate the user choice in the 
-	 * GUI. 
+	/*
+	 * No test for either of the two versions of 'askChoices()" because it does not use either the
+	 * the last-selected value or a .properties file value to pre-populate the user choice in the
+	 * GUI.
 	 */
 
-	/* 
-	 * No test for 'askYesNo()" because it does not use either the the last-selected value or
-	 * a .properties file value to pre-populate the user choice in the GUI. 
+	/*
+	 * No test for 'askYesNo()" because it does not use either the last-selected value or
+	 * a .properties file value to pre-populate the user choice in the GUI.
 	 */
 
-	/* 
-	 * No test for 'askProjectFolder()" because it does not use either the the last-selected value 
-	 * or a .properties file value to pre-populate the user choice in the GUI. 
+	/*
+	 * No test for 'askProjectFolder()" because it does not use either the last-selected value
+	 * or a .properties file value to pre-populate the user choice in the GUI.
 	 */
 
-	/* 
-	 * No test for 'askProgram()" because it does not use either the the last-selected value or
-	 * a .properties file value to pre-populate the user choice in the GUI. 
+	/*
+	 * No test for 'askProgram()" because it does not use either the last-selected value or
+	 * a .properties file value to pre-populate the user choice in the GUI.
 	 */
 
-	/* 
-	 * No test for 'askDomainFile()" because it does not use either the the last-selected value or
-	 * a .properties file value to pre-populate the user choice in the GUI. 
+	/*
+	 * No test for 'askDomainFile()" because it does not use either the last-selected value or
+	 * a .properties file value to pre-populate the user choice in the GUI.
 	 */
 
 //==================================================================================================
 // Private Methods
-//==================================================================================================	
+//==================================================================================================
 
 	private <T> T ask_ComboInput(Callable<T> c) {
 		return ask_TextInput(null, c);

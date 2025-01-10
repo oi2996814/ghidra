@@ -498,40 +498,40 @@ public class RecoveredClass {
 			String fieldName = newComponent.getFieldName();
 			String comment = newComponent.getComment();
 
-			// if it is any empty placeholder structure - replace with 
-			// undefined1 dt
-			if (newComponentDataType instanceof Structure &&
-				newComponentDataType.isNotYetDefined()) {
-
-				computedClassStructure.replaceAtOffset(offset, new Undefined1DataType(), 1,
-					fieldName, comment);
-				continue;
-			}
-
-			// replace pointers to existing class data type with void pointer of same size
+			// if new component is an existing class data type pointer then replace current item
+			// with a void pointer of same size if there is room
 			if (newComponentDataType instanceof Pointer &&
 				newComponentDataType.getName().equals(name + " *")) {
 
-				DataType voidDT = new VoidDataType();
+				Pointer pointer =
+					new PointerDataType(VoidDataType.dataType, length, dataTypeManager);
 
-				Pointer pointer = new PointerDataType();
-				if (newComponentDataType.getLength() == 4) {
-					pointer = new Pointer32DataType(voidDT);
+				if (EditStructureUtils.hasEnoughUndefinedsOfAnyLengthAtOffset(
+					computedClassStructure, offset, pointer.getLength(), monitor) ||
+					length <= currentComponent.getLength()) {
+
+					computedClassStructure.replaceAtOffset(offset, pointer, length, fieldName,
+						comment);
 				}
-				if (newComponentDataType.getLength() == 8) {
-					pointer = new Pointer64DataType(voidDT);
-				}
-				computedClassStructure.replaceAtOffset(offset, pointer, pointer.getLength(),
-					fieldName, comment);
 				continue;
 			}
 
 			// if the new component is a non-empty structure, check to see if the current
 			// structure has undefined or equivalent components and replace with new struct if so
 			if (newComponentDataType instanceof Structure) {
+			
+				// if new component is any empty placeholder structure AND if the existing component
+				// is undefined then replace with undefined1 dt
+				if (newComponentDataType.isNotYetDefined()) {
+					if (Undefined.isUndefined(currentComponentDataType)) {
+						computedClassStructure.replaceAtOffset(offset, new Undefined1DataType(), 1,
+						fieldName, comment);
+					}
+					continue;
+				}
 				if (EditStructureUtils.hasReplaceableComponentsAtOffset(computedClassStructure,
-					offset, (Structure) newComponentDataType, monitor)) {
-
+					offset, (Structure)newComponentDataType, monitor)) {
+					
 					boolean successfulClear =
 						EditStructureUtils.clearLengthAtOffset(computedClassStructure, offset,
 							length, monitor);
@@ -606,7 +606,7 @@ public class RecoveredClass {
 				DataTypeComponent component =
 					computedClassStructure.getComponentAt(offset.intValue());
 
-				if (!component.getDataType().equals(dataType)) {
+				if (component != null && !component.getDataType().equals(dataType)) {
 					computedClassStructure.replaceAtOffset(offset.intValue(), dataType,
 						dataType.getLength(), component.getFieldName(), component.getComment());
 				}

@@ -25,7 +25,8 @@ import ghidra.util.classfinder.ClassSearcher;
 import ghidra.util.classfinder.ExtensionPoint;
 
 public abstract class PluginPackage implements ExtensionPoint, Comparable<PluginPackage> {
-	public static final int CORE_PRIORITY = 0;
+	public static final int UTILITY_PRIORITY = 0;
+	public static final int CORE_PRIORITY = 1;
 	public static final int FEATURE_PRIORITY = 4;
 	public static final int MISCELLANIOUS_PRIORITY = 6;
 	public static final int DEVELOPER_PRIORITY = 8;
@@ -34,6 +35,25 @@ public abstract class PluginPackage implements ExtensionPoint, Comparable<Plugin
 
 	private static Map<String, PluginPackage> packageMap;
 
+	/**
+	 * Returns true if the system has found a plugin package for the given name
+	 * @param packageName the package name
+	 * @return true if the system has found a plugin package for the given name
+	 */
+	public static boolean exists(String packageName) {
+		if (packageMap == null) {
+			packageMap = createPackageMap();
+		}
+		PluginPackage pluginPackage = packageMap.get(packageName.toLowerCase());
+		return pluginPackage != null;
+	}
+
+	/**
+	 * Returns the existing plugin package with the given name.  If no package exists, then the
+	 * {@link MiscellaneousPluginPackage} will be returned.
+	 * @param packageName the package name
+	 * @return the package
+	 */
 	public static PluginPackage getPluginPackage(String packageName) {
 		if (packageMap == null) {
 			packageMap = createPackageMap();
@@ -103,6 +123,15 @@ public abstract class PluginPackage implements ExtensionPoint, Comparable<Plugin
 		return description;
 	}
 
+	/**
+	 * The minimum level required to activate plugins when the entire package is activated by the
+	 * user.
+	 * @return the minimum level
+	 */
+	public PluginStatus getActivationLevel() {
+		return PluginStatus.RELEASED;
+	}
+
 	@Override
 	public int compareTo(PluginPackage other) {
 		if (priority == other.priority) {
@@ -111,7 +140,8 @@ public abstract class PluginPackage implements ExtensionPoint, Comparable<Plugin
 		return priority - other.priority;
 	}
 
-	public boolean isfullyAddable() {
-		return true;
+	@Override
+	public String toString() {
+		return name;
 	}
 }

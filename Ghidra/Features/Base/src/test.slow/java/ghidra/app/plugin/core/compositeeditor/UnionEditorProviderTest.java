@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,13 +22,17 @@ import java.awt.Window;
 import org.junit.Assert;
 import org.junit.Test;
 
-import docking.ActionContext;
+import docking.DefaultActionContext;
+import docking.action.DockingActionIf;
+import docking.action.ToggleDockingActionIf;
 import ghidra.framework.options.Options;
 import ghidra.program.model.data.*;
 import ghidra.util.Swing;
 import ghidra.util.exception.UsrException;
 
 public class UnionEditorProviderTest extends AbstractUnionEditorTest {
+	private static final String HEX_OPTION_NAME =
+		"Union Editor" + Options.DELIMITER + "Show Numbers In Hex";
 
 	@Test
 	public void testReplaceDataType() throws Exception {
@@ -79,11 +83,9 @@ public class UnionEditorProviderTest extends AbstractUnionEditorTest {
 	// Test Undo / Redo of program.
 	@Test
 	public void testModifiedDtAndProgramRestored() throws Exception {
-		RestoreListener restoreListener = new RestoreListener();
 		Window dialog;
 		try {
 			init(complexUnion, pgmTestCat, false);
-			program.addListener(restoreListener);
 
 			// Change the union.
 			Swing.runLater(() -> {
@@ -134,49 +136,53 @@ public class UnionEditorProviderTest extends AbstractUnionEditorTest {
 		}
 		finally {
 			dialog = null;
-			program.removeListener(restoreListener);
-			cleanup();
 		}
 	}
 
 	// Test Undo / Redo of program.
 	@Test
 	public void testUnModifiedDtAndProgramRestored() throws Exception {
-		RestoreListener restoreListener = new RestoreListener();
-		try {
-			init(complexUnion, pgmTestCat, false);
-			program.addListener(restoreListener);
+		init(complexUnion, pgmTestCat, false);
 
-			// Change the union.
-			Swing.runLater(() -> {
-				delete(4, 5);
-				try {
-					model.add(new WordDataType());
-				}
-				catch (UsrException e) {
-					Assert.fail(e.getMessage());
-				}
-			});
+		// Change the union.
+		Swing.runLater(() -> {
+			delete(4, 5);
+			try {
+				model.add(new WordDataType());
+			}
+			catch (UsrException e) {
+				Assert.fail(e.getMessage());
+			}
+		});
 
-			waitForTasks();
-			assertFalse(complexUnion.isEquivalent(model.viewComposite));
+		waitForTasks();
+		assertFalse(complexUnion.isEquivalent(model.viewComposite));
 
-			// Apply the changes
-			invoke(applyAction);
-			assertTrue(complexUnion.isEquivalent(model.viewComposite));
+		// Apply the changes
+		invoke(applyAction);
+		waitForSwing();
 
-			// Undo the apply
-			undo(program);
-			assertTrue(complexUnion.isEquivalent(model.viewComposite));
+		assertTrue(complexUnion.isEquivalent(model.viewComposite));
 
-			// Redo the apply
-			redo(program);
-			assertTrue(complexUnion.isEquivalent(model.viewComposite));
-		}
-		finally {
-			program.removeListener(restoreListener);
-			cleanup();
-		}
+		// Undo the apply
+		undo(program);
+
+		Window dialog = waitForWindow("Reload Union Editor?");
+		assertNotNull(dialog);
+		pressButton(dialog, "Yes");
+		waitForSwing();
+
+		assertTrue(complexUnion.isEquivalent(model.viewComposite));
+
+		// Redo the apply
+		redo(program);
+
+		dialog = waitForWindow("Reload Union Editor?");
+		assertNotNull(dialog);
+		pressButton(dialog, "Yes");
+		waitForSwing();
+
+		assertTrue(complexUnion.isEquivalent(model.viewComposite));
 	}
 
 	@Test
@@ -198,8 +204,9 @@ public class UnionEditorProviderTest extends AbstractUnionEditorTest {
 	@Test
 	public void testCloseEditorProviderAndSave() throws Exception {
 		Window dialog;
+		DataType oldDt = complexUnion.clone(null);
+
 		init(complexUnion, pgmTestCat, false);
-		DataType oldDt = model.viewComposite.clone(null);
 
 		// Change the union.
 		Swing.runLater(() -> {
@@ -234,8 +241,9 @@ public class UnionEditorProviderTest extends AbstractUnionEditorTest {
 	@Test
 	public void testCloseEditorAndNoSave() throws Exception {
 		Window dialog;
+		DataType oldDt = complexUnion.clone(null);
+
 		init(complexUnion, pgmTestCat, false);
-		DataType oldDt = model.viewComposite.clone(null);
 
 		// Change the union.
 		Swing.runLater(() -> {
@@ -301,83 +309,68 @@ public class UnionEditorProviderTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-	public void testChangeHexNumbersOption() throws Exception {
-		init(complexUnion, pgmTestCat, false);
-		DataType oldDt = model.viewComposite.clone(null);
-
-		Options options = tool.getOptions("Editors");
-		String hexNumbersName = "Union Editor" + Options.DELIMITER + "Show Numbers In Hex";
-
-		// Get the hex length option value
-		boolean hexLength = options.getBoolean(hexNumbersName, false);
-		assertEquals(false, hexLength);
-		// Check the length value is in decimal
-		assertEquals(false, model.isShowingNumbersInHex());
-		assertEquals("29", model.getValueAt(15, model.getLengthColumn()));
-		assertEquals("87", model.getLengthAsString());
-
-		// Set the hex length option value to Hex
-		options.setBoolean(hexNumbersName, true);
-
-		// Get the hex length option value
-		hexLength = options.getBoolean(hexNumbersName, false);
-		assertEquals(true, hexLength);
-		// Check the value (length should still be decimal in editor)
-		assertEquals(false, model.isShowingNumbersInHex());
-		assertEquals("29", model.getValueAt(15, model.getLengthColumn()));
-		assertEquals("87", model.getLengthAsString());
-
-		// Close the editor
-		Swing.runLater(() -> provider.closeComponent());
-		waitForSwing();
-		// Editor should be closed.
-		assertFalse(tool.isVisible(provider));
-		assertTrue(complexUnion.isEquivalent(oldDt));
-		// Re-open the editor
-		init(complexUnion, pgmTestCat, true);
-
-		// Get the hex option value (length should now be hexadecimal in editor)
-		hexLength = options.getBoolean(hexNumbersName, false);
-		assertEquals(true, hexLength);
-		// Check the value is in hexadecimal
+	public void testEditorHexModeDefaultsFromOptions() throws Exception {
+		// options default is hex
+		provider = edit(complexUnion);
+		model = provider.getModel();
 		assertEquals(true, model.isShowingNumbersInHex());
 		assertEquals("0x1d", model.getValueAt(15, model.getLengthColumn()));
 		assertEquals("0x57", model.getLengthAsString());
 
-		// Set the hex length option value to decimal
-		options.setBoolean(hexNumbersName, false);
+		closeProvider(provider);
+		setOptions(HEX_OPTION_NAME, false);
 
-		// Get the hex option value
-		hexLength = options.getBoolean(hexNumbersName, false);
-		assertEquals(false, hexLength);
-		// Check the value (length should still be hexadecimal in editor)
+		provider = edit(complexUnion);
+		model = provider.getModel();
+		assertEquals(false, model.isShowingNumbersInHex());
+		assertEquals("29", model.getValueAt(15, model.getLengthColumn()));
+		assertEquals("87", model.getLengthAsString());
+	}
+
+	@Test
+	public void testHexDisplayOptionsChangeDoesntAffectExisting() throws Exception {
+		// options default is hex
+		provider = edit(complexUnion);
+		model = provider.getModel();
 		assertEquals(true, model.isShowingNumbersInHex());
 		assertEquals("0x1d", model.getValueAt(15, model.getLengthColumn()));
 		assertEquals("0x57", model.getLengthAsString());
 
-		// Close the editor
-		Swing.runLater(() -> provider.closeComponent());
-		waitForSwing();
-		// Editor should be closed.
-		assertFalse(tool.isVisible(provider));
-		assertTrue(complexUnion.isEquivalent(oldDt));
+		setOptions(HEX_OPTION_NAME, false);
 
-		// Re-open the editor
-		init(complexUnion, pgmTestCat, false);
+		assertEquals(true, model.isShowingNumbersInHex());
+		assertEquals("0x1d", model.getValueAt(15, model.getLengthColumn()));
+		assertEquals("0x57", model.getLengthAsString());
+	}
 
-		// Get the hex option value (length should now be decimal in editor)
-		hexLength = options.getBoolean(hexNumbersName, false);
-		assertEquals(false, hexLength);
-		// Check the value is in hexadecimal
+	@Test
+	public void testToggleHexModeAction() throws Exception {
+		provider = edit(complexUnion);
+		model = provider.getModel();
+		assertEquals(true, model.isShowingNumbersInHex());
+		assertEquals("0x1d", model.getValueAt(15, model.getLengthColumn()));
+		assertEquals("0x57", model.getLengthAsString());
+
+		DockingActionIf action = getAction(plugin, "Show Numbers In Hex");
+		setToggleActionSelected((ToggleDockingActionIf) action, new DefaultActionContext(), false);
+
 		assertEquals(false, model.isShowingNumbersInHex());
 		assertEquals("29", model.getValueAt(15, model.getLengthColumn()));
 		assertEquals("87", model.getLengthAsString());
+
 	}
 
 	private void delete(int... rows) {
 
 		getTable().requestFocus();
 		model.setSelection(rows);
-		deleteAction.actionPerformed(new ActionContext());
+		deleteAction.actionPerformed(new DefaultActionContext());
+	}
+
+	protected UnionEditorProvider edit(DataType dt) {
+		runSwing(() -> {
+			plugin.edit(dt);
+		});
+		return waitForComponentProvider(UnionEditorProvider.class);
 	}
 }

@@ -15,12 +15,20 @@
  */
 /// \file slgh_compile.hh
 /// \brief High-level control of the sleigh compilation process
+#ifndef __SLGH_COMPILE_HH__
+#define __SLGH_COMPILE_HH__
 
 #include "sleighbase.hh"
 #include "pcodecompile.hh"
 #include "filemanage.hh"
 #include <iostream>
 #include <sstream>
+
+namespace ghidra {
+
+using std::cout;
+using std::cerr;
+using std::out_of_range;
 
 /// \brief A helper class to associate a \e named Constructor section with its symbol scope
 ///
@@ -246,7 +254,7 @@ public:
 /// parser.
 class SleighPcode : public PcodeCompile {
   SleighCompile *compiler;			///< The main SLEIGH parser
-  virtual uintb allocateTemp(void);
+  virtual uint4 allocateTemp(void);
   virtual const Location *getLocation(SleighSymbol *sym) const;
   virtual void reportError(const Location* loc, const string &msg);
   virtual void reportWarning(const Location* loc, const string &msg);
@@ -292,6 +300,7 @@ private:
   bool warnalllocalcollisions;		///< \b true if local export collisions generate individual warnings
   bool warnallnops;			///< \b true if pcode NOPs generate individual warnings
   bool failinsensitivedups;		///< \b true if case insensitive register duplicates cause error
+  bool debugoutput;			///< \b true if output .sla is written in XML debug format
   vector<string> noplist;		///< List of individual NOP warnings
   mutable Location currentLocCache;	///< Location for (last) request of current location
   int4 errors;				///< Number of fatal errors encountered
@@ -332,7 +341,7 @@ public:
   void reportWarning(const Location *loc, const string &msg);	///< Issue a warning message with a source location
   int4 numErrors(void) const { return errors; }			///< Return the current number of fatal errors
 
-  uintb getUniqueAddr(void);					///< Get the next available temporary register offset
+  uint4 getUniqueAddr(void);					///< Get the next available temporary register offset
 
   /// \brief Set whether unnecessary truncation and extension operators generate warnings individually
   ///
@@ -373,6 +382,11 @@ public:
   ///
   /// \param val is \b true is duplicates cause an error.
   void setInsensitiveDuplicateError(bool val) { failinsensitivedups = val; }
+
+  /// \brief Set whether the output .sla file should be written in XML debug format
+  ///
+  /// \param val is \b true if the XML debug format should be used
+  void setDebugOutput(bool val) { debugoutput = val; }
 
   // Lexer functions
   void calcContextLayout(void);				///< Calculate the internal context field layout
@@ -440,9 +454,12 @@ public:
   void setAllOptions(const map<string,string> &defines, bool unnecessaryPcodeWarning,
 		     bool lenientConflict, bool allCollisionWarning,
 		     bool allNopWarning,bool deadTempWarning,bool enforceLocalKeyWord,
-		     bool largeTemporaryWarning, bool caseSensitiveRegisterNames);
+		     bool largeTemporaryWarning, bool caseSensitiveRegisterNames,bool debugOutput);
   int4 run_compilation(const string &filein,const string &fileout);
 };
 
 extern SleighCompile *slgh;		///< A global reference to the SLEIGH compiler accessible to the parse functions
 extern int yydebug;			///< Debug state for the SLEIGH parse functions
+
+} // End namespace ghidra
+#endif

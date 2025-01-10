@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 #include "flow.hh"
+
+namespace ghidra {
 
 /// Prepare for tracing flow for a new function.
 /// The Funcdata object and references to its internal containers must be explicitly given.
@@ -323,13 +325,12 @@ PcodeOp *FlowInfo::xrefControlFlow(list<PcodeOp *>::const_iterator oiter,bool &s
 	--oiter;		// Backup one op, to pickup halt
       break;
     case CPUI_CALLIND:
-      if (setupCallindSpecs(op,true,fc))
+      if (setupCallindSpecs(op,fc))
 	--oiter;		// Backup one op, to pickup halt
       break;
     case CPUI_CALLOTHER:
     {
-      InjectedUserOp *userop = dynamic_cast<InjectedUserOp *>(glb->userops.getOp(op->getIn(0)->getOffset()));
-      if (userop != (InjectedUserOp *)0)
+      if (glb->userops.getOp(op->getIn(0)->getOffset())->getType() == UserPcodeOp::injected)
 	injectlist.push_back(op);
       break;
     }
@@ -646,9 +647,9 @@ void FlowInfo::queryCall(FuncCallSpecs &fspecs)
     Funcdata *otherfunc = data.getScopeLocal()->getParent()->queryFunction( fspecs.getEntryAddress() );
     if (otherfunc != (Funcdata *)0) {
       fspecs.setFuncdata(otherfunc); // Associate the symbol with the callsite
-      if (!fspecs.hasModel()) {	// If the prototype was not overridden
-	fspecs.copyFlowEffects(otherfunc->getFuncProto());	// Take the symbols's prototype
-	// If the callsite is applying just the standard prototype from the symbol,
+      if (!fspecs.hasModel() || otherfunc->getFuncProto().isInline()) {	// If the prototype was not overridden
+	fspecs.copyFlowEffects(otherfunc->getFuncProto());	// Take the flow affects of the symbol
+	// If the call site is applying just the standard prototype from the symbol,
 	// this postpones the full copy of the prototype until ActionDefaultParams
 	// Which lets "last second" changes come in, between when the function is first walked and
 	// when it is finally decompiled
@@ -685,27 +686,20 @@ bool FlowInfo::setupCallSpecs(PcodeOp *op,FuncCallSpecs *fc)
 /// The new FuncCallSpecs object is created and initialized based on
 /// the CALLIND op at the site. Any overriding prototype or control-flow may be examined and applied.
 /// \param op is the given CALLIND op
-/// \param tryoverride is \b true is overrides should be applied for the call site
 /// \param fc is non-NULL if \e injection is in progress and a cycle check needs to be made
 /// \return \b true if it is discovered the sub-function never returns
-bool FlowInfo::setupCallindSpecs(PcodeOp *op,bool tryoverride,FuncCallSpecs *fc)
+bool FlowInfo::setupCallindSpecs(PcodeOp *op,FuncCallSpecs *fc)
 
 {
   FuncCallSpecs *res;
   res = new FuncCallSpecs(op);
   qlst.push_back(res);
 
-  if (tryoverride) {
-    data.getOverride().applyIndirect(data,*res);
-    data.getOverride().applyPrototype(data,*res);
-  }
+  data.getOverride().applyIndirect(data,*res);
+  if (fc != (FuncCallSpecs *)0 && fc->getEntryAddress() == res->getEntryAddress())
+    res->setAddress(Address()); // Cancel any indirect override
+  data.getOverride().applyPrototype(data,*res);
   queryCall(*res);
-  if (fc != (FuncCallSpecs *)0) {
-    if (fc->getEntryAddress() == res->getEntryAddress()) {
-      res->cancelInjectId();
-      res->setAddress(Address()); // Cancel any indirect override
-    }
-  }
 
   if (!res->getEntryAddress().isInvalid()) {	// If we are overridden to a direct call
     // Change indirect pcode call into a normal pcode call
@@ -716,20 +710,49 @@ bool FlowInfo::setupCallindSpecs(PcodeOp *op,bool tryoverride,FuncCallSpecs *fc)
 }
 
 /// \param op is the BRANCHIND operation to convert
-/// \param failuremode is a code indicating the type of failure when trying to recover the jump table
-void FlowInfo::truncateIndirectJump(PcodeOp *op,int4 failuremode)
+/// \param mode indicates the type of failure when trying to recover the jump table
+void FlowInfo::truncateIndirectJump(PcodeOp *op,JumpTable::RecoveryMode mode)
 
 {
-  data.opSetOpcode(op,CPUI_CALLIND); // Turn jump into call
-  bool tryoverride = (failuremode == 2);
-  setupCallindSpecs(op,tryoverride,(FuncCallSpecs *)0);
-  data.getCallSpecs(op)->setBadJumpTable(true);
+  if (mode == JumpTable::fail_return) {
+    data.opSetOpcode(op,CPUI_RETURN);	// Turn jump into return
+    data.warning("Treating indirect jump as return",op->getAddr());
+  }
+  else {
+    data.opSetOpcode(op,CPUI_CALLIND); // Turn jump into call
+    setupCallindSpecs(op,(FuncCallSpecs *)0);
+    FuncCallSpecs *fc = data.getCallSpecs(op);
+    uint4 returnType;
+    bool noParams;
 
-  // Create an artificial return
-  PcodeOp *truncop = artificialHalt(op->getAddr(),0);
-  data.opDeadInsertAfter(truncop,op);
+    if (mode == JumpTable::fail_thunk) {
+      returnType = 0;
+      noParams = false;
+    }
+    else if (mode == JumpTable::fail_callother) {
+      returnType = PcodeOp::noreturn;
+      fc->setNoReturn(true);
+      data.warning("Does not return", op->getAddr());
+      noParams = true;
+    }
+    else {
+      returnType = 0;
+      noParams = false;
+      fc->setBadJumpTable(true);		// Consider using special name for switch variable
+      data.warning("Treating indirect jump as call",op->getAddr());
+    }
+    if (noParams) {
+      if (!fc->hasModel()) {
+	fc->setInternal(glb->defaultfp, glb->types->getTypeVoid());
+	fc->setInputLock(true);
+	fc->setOutputLock(true);
+      }
+    }
 
-  data.warning("Treating indirect jump as call",op->getAddr());
+    // Create an artificial return
+    PcodeOp *truncop = artificialHalt(op->getAddr(),returnType);
+    data.opDeadInsertAfter(truncop,op);
+  }
 }
 
 /// \brief Test if the given p-code op is a member of an array
@@ -755,36 +778,27 @@ void FlowInfo::generateOps(void)
   addrlist.push_back(data.getAddress());
   while(!addrlist.empty())	// Recovering as much as possible except jumptables
     fallthru();
+  if (hasInject())
+    injectPcode();
   do {
-    bool collapsed_jumptable = false;
     while(!tablelist.empty()) {	// For each jumptable found
-      PcodeOp *op = tablelist.back();
-      tablelist.pop_back();
-      int4 failuremode;
-      JumpTable *jt = data.recoverJumpTable(op,this,failuremode); // Recover it
-      if (jt == (JumpTable *)0) { // Could not recover jumptable
-	if ((failuremode == 3) && (!tablelist.empty()) && (!isInArray(notreached,op))) {
-	   // If the indirect op was not reachable with current flow AND there is more flow to generate,
-	  //     AND we haven't tried to recover this table before
-	  notreached.push_back(op); // Save this op so we can try to recovery table again later
-	}
-	else if (!isFlowForInline())	// Unless this flow is being inlined for something else
-	  truncateIndirectJump(op,failuremode); // Treat the indirect jump as a call
-      }
-      else {
+      vector<JumpTable *> newTables;
+      recoverJumpTables(newTables, notreached);
+      tablelist.clear();
+      for(int4 i=0;i<newTables.size();++i) {
+	JumpTable *jt = newTables[i];
+	if (jt == (JumpTable *)0) continue;
+
 	int4 num = jt->numEntries();
 	for(int4 i=0;i<num;++i)
-	  newAddress(op,jt->getAddressByIndex(i));
-	if (jt->isPossibleMultistage())
-	  collapsed_jumptable = true;
+	  newAddress(jt->getIndirectOp(),jt->getAddressByIndex(i));
 	while(!addrlist.empty())	// Try to fill in as much more as possible
 	  fallthru();
       }
     }
     
     checkContainedCall();	// Check for PIC constructions
-    if (collapsed_jumptable)
-      checkMultistageJumptables();
+    checkMultistageJumptables();
     while(notreachcnt < notreached.size()) {
       tablelist.push_back(notreached[notreachcnt]);
       notreachcnt += 1;
@@ -1029,7 +1043,7 @@ void FlowInfo::xrefInlinedBranch(PcodeOp *op)
   if (op->code() == CPUI_CALL)
     setupCallSpecs(op,(FuncCallSpecs *)0);
   else if (op->code() == CPUI_CALLIND)
-    setupCallindSpecs(op,true,(FuncCallSpecs *)0);
+    setupCallindSpecs(op,(FuncCallSpecs *)0);
   else if (op->code() == CPUI_BRANCHIND) {
     JumpTable *jt = data.linkJumpTable(op);
     if (jt == (JumpTable *)0)
@@ -1106,12 +1120,6 @@ void FlowInfo::inlineEZClone(const FlowInfo &inlineflow,const Address &calladdr)
 bool FlowInfo::testHardInlineRestrictions(Funcdata *inlinefd,PcodeOp *op,Address &retaddr)
 
 {
-  if (inline_recursion->find( inlinefd->getAddress() ) != inline_recursion->end()) {
-    // This function has already been included with current inlining
-    inline_head->warning("Could not inline here",op->getAddr());
-    return false;
-  }
-  
   if (!inlinefd->getFuncProto().isNoReturn()) {
     list<PcodeOp *>::iterator iter = op->getInsertIter();
     ++iter;
@@ -1128,8 +1136,6 @@ bool FlowInfo::testHardInlineRestrictions(Funcdata *inlinefd,PcodeOp *op,Address
     // If the inlining "jumps back" this starts a new basic block
     data.opMarkStartBasic(nextop);
   }
-
-  inline_recursion->insert(inlinefd->getAddress());
   return true;
 }
 
@@ -1166,6 +1172,8 @@ void FlowInfo::doInjection(InjectPayload *payload,InjectContext &icontext,PcodeO
 
   bool startbasic = op->isBlockStart();
   ++iter;			// Now points to first op in the injection
+  if (iter == obank.endDead())
+    throw LowlevelError("Empty injection: " + payload->getName());
   PcodeOp *firstop = *iter;
   bool isfallthru = true;
   PcodeOp *lastop = xrefControlFlow(iter,startbasic,isfallthru,fc);
@@ -1227,11 +1235,31 @@ bool FlowInfo::inlineSubFunction(FuncCallSpecs *fc)
 {
   Funcdata *fd = fc->getFuncdata();
   if (fd == (Funcdata *)0) return false;
-  PcodeOp *op = fc->getOp();
-  Address retaddr;
 
-  if (!data.inlineFlow( fd, *this, op))
+  if (inline_head == (Funcdata *)0) {
+    // This is the top level of inlining
+    inline_head = &data;	// Set up head of inlining
+    inline_recursion = &inline_base;
+  }
+  inline_recursion->insert(data.getAddress()); // Insert current function
+  if (inline_recursion->find( fd->getAddress() ) != inline_recursion->end()) {
+    // This function has already been included with current inlining
+    inline_head->warning("Could not inline here",fc->getOp()->getAddr());
     return false;
+  }
+
+  int4 res = data.inlineFlow( fd, *this, fc->getOp());
+  if (res < 0)
+    return false;
+  else if (res == 0) {	// easy model
+    // Remove inlined function from list so it can be inlined again, even if it also inlines
+    inline_recursion->erase(fd->getAddress());
+  }
+  else if (res == 1) {	// hard model
+    // Add inlined function to recursion list, even if it contains no inlined calls,
+    // to prevent parent from inlining it twice
+    inline_recursion->insert(fd->getAddress());
+  }
 
   // Changing CALL to JUMP may make some original code unreachable
   setPossibleUnreachable();
@@ -1290,17 +1318,6 @@ void FlowInfo::deleteCallSpec(FuncCallSpecs *fc)
 void FlowInfo::injectPcode(void)
 
 {
-  if (inline_head == (Funcdata *)0) {
-    // This is the top level of inlining
-    inline_head = &data;	// Set up head of inlining
-    inline_recursion = &inline_base;
-    inline_recursion->insert(data.getAddress()); // Insert ourselves
-    //    inline_head = (Funcdata *)0;
-  }
-  else {
-    inline_recursion->insert(data.getAddress()); // Insert ourselves
-  }
-
   for(int4 i=0;i<injectlist.size();++i) {
     PcodeOp *op = injectlist[i];
     if (op == (PcodeOp *)0) continue;
@@ -1389,3 +1406,46 @@ void FlowInfo::checkMultistageJumptables(void)
       tablelist.push_back(jt->getIndirectOp());
   }  
 }
+
+/// \brief Recover jumptables for the current set of BRANCHIND ops using existing flow
+///
+/// This method passes back a list of JumpTable objects, one for each BRANCHIND in the current
+/// \b tablelist where the jumptable can be recovered. If a particular BRANCHIND cannot be recovered
+/// because the current partial control flow cannot legally reach it, the BRANCHIND is passed back
+/// in a separate list.
+/// \param newTables will hold the list of recovered JumpTables
+/// \param notreached will hold the list of BRANCHIND ops that could not be reached
+void FlowInfo::recoverJumpTables(vector<JumpTable *> &newTables,vector<PcodeOp *> &notreached)
+
+{
+  PcodeOp *op = tablelist[0];
+  ostringstream s1;
+  s1 << data.getName() << "@@jump@";
+  op->getAddr().printRaw(s1);
+
+  string nm = s1.str();
+  // Prepare partial Funcdata object for analysis if necessary
+  Funcdata partial(nm,nm,data.getScopeLocal()->getParent(),data.getAddress(),(FunctionSymbol *)0);
+
+  for(int4 i=0;i<tablelist.size();++i) {
+    op = tablelist[i];
+    JumpTable::RecoveryMode mode;
+    JumpTable *jt = data.recoverJumpTable(partial,op,this,mode); // Recover it
+    if (jt == (JumpTable *)0) { // Could not recover jumptable
+      if (!isFlowForInline())	// Unless this flow is being inlined for something else
+	truncateIndirectJump(op,mode); // Treat the indirect jump as a call
+    }
+    else if (jt->isPartial()) {
+      if (tablelist.size() > 1 && !isInArray(notreached,op)) {
+	// If the recovery is incomplete with current flow AND there is more flow to generate,
+	//     AND we haven't tried to recover this table before
+	notreached.push_back(op); // Save this op so we can try to recover the table again later
+      }
+      else
+	jt->markComplete();	// If we aren't revisiting, mark the table as complete
+    }
+    newTables.push_back(jt);
+  }
+}
+
+} // End namespace ghidra

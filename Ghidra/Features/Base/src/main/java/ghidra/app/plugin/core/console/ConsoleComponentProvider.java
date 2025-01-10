@@ -25,9 +25,10 @@ import javax.swing.text.Document;
 
 import docking.*;
 import docking.action.*;
+import generic.theme.GIcon;
+import generic.theme.Gui;
 import ghidra.app.services.*;
 import ghidra.framework.main.ConsoleTextPane;
-import ghidra.framework.options.OptionsChangeListener;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.framework.plugintool.PluginTool;
@@ -35,26 +36,20 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
-import ghidra.util.*;
-import resources.ResourceManager;
+import ghidra.util.HelpLocation;
+import ghidra.util.Msg;
 
-public class ConsoleComponentProvider extends ComponentProviderAdapter
-		implements ConsoleService, OptionsChangeListener {
+public class ConsoleComponentProvider extends ComponentProviderAdapter implements ConsoleService {
 
 	private static final String OLD_NAME = "ConsolePlugin";
 	private static final String NAME = "Console";
 
-	private static final String CONSOLE_GIF = "images/monitor.png";
-	private static final String CLEAR_GIF = "images/erase16.png";
-	private static final String SCROLL_LOCK_GIF = "images/lock.png";
-
-	private static final Font DEFAULT_FONT = new Font("monospaced", Font.PLAIN, 12);
+	private static final String DEFAULT_FONT_ID = "font.plugin.console";
 	private static final String FONT_OPTION_LABEL = "Font";
 	private static final String FONT_DESCRIPTION =
 		"This is the font that will be used in the Console.  " +
 			"Double-click the font example to change it.";
 
-	private Font font;
 	private ConsoleTextPane textPane;
 	private JScrollPane scroller;
 	private JComponent component;
@@ -74,13 +69,20 @@ public class ConsoleComponentProvider extends ComponentProviderAdapter
 
 		setDefaultWindowPosition(WindowPosition.BOTTOM);
 		setHelpLocation(new HelpLocation(owner, owner));
-		setIcon(ResourceManager.loadImage(CONSOLE_GIF));
+		setIcon(new GIcon("icon.plugin.console.provider"));
 		setWindowMenuGroup("Console");
 		setSubTitle("Scripting");
 		setTitle("Console");
 		createOptions();
 		build();
 		createActions();
+	}
+
+	@Override
+	public boolean canBeParent() {
+		// the console window may appear and be closed often and thus is not a suitable parent when
+		// in a window by itself
+		return false;
 	}
 
 	void init() {
@@ -100,28 +102,21 @@ public class ConsoleComponentProvider extends ComponentProviderAdapter
 	private void createOptions() {
 		ToolOptions options = tool.getOptions("Console");
 		HelpLocation help = new HelpLocation(getOwner(), getOwner());
-		options.registerOption(FONT_OPTION_LABEL, DEFAULT_FONT, help, FONT_DESCRIPTION);
+		options.registerThemeFontBinding(FONT_OPTION_LABEL, DEFAULT_FONT_ID, help,
+			FONT_DESCRIPTION);
 		options.setOptionsHelpLocation(help);
-		font = options.getFont(FONT_OPTION_LABEL, DEFAULT_FONT);
-		font = SystemUtilities.adjustForFontSizeOverride(font);
-		options.addOptionsChangeListener(this);
-	}
-
-	@Override
-	public void optionsChanged(ToolOptions options, String optionName, Object oldValue,
-			Object newValue) {
-		if (optionName.equals(FONT_OPTION_LABEL)) {
-			font = SystemUtilities.adjustForFontSizeOverride((Font) newValue);
-			textPane.setFont(font);
-		}
 	}
 
 	private void build() {
 
 		textPane = new ConsoleTextPane(tool);
-		textPane.setName("CONSOLE");
-		textPane.setFont(font);
+		Gui.registerFont(textPane, DEFAULT_FONT_ID);
 		textPane.setEditable(false);
+
+		String textPaneName = "Console Text Pane";
+		textPane.setName(textPaneName);
+		textPane.getAccessibleContext().setAccessibleName(textPaneName);
+
 		textPane.addMouseMotionListener(new MouseMotionAdapter() {
 			@Override
 			public void mouseMoved(MouseEvent e) {
@@ -203,7 +198,7 @@ public class ConsoleComponentProvider extends ComponentProviderAdapter
 			return;
 		}
 
-		// NOTE: must be case sensitive otherwise the service will report that it has 
+		// NOTE: must be case sensitive otherwise the service will report that it has
 		//       processed the request even if there are no matches
 		boolean found =
 			gotoService.goToQuery(currentAddress, new QueryData(word.word, true), null, null);
@@ -274,7 +269,7 @@ public class ConsoleComponentProvider extends ComponentProviderAdapter
 		};
 		clearAction.setDescription("Clear Console");
 // ACTIONS - auto generated
-		clearAction.setToolBarData(new ToolBarData(ResourceManager.loadImage(CLEAR_GIF), null));
+		clearAction.setToolBarData(new ToolBarData(new GIcon("icon.plugin.console.clear"), null));
 
 		clearAction.setEnabled(true);
 
@@ -286,7 +281,7 @@ public class ConsoleComponentProvider extends ComponentProviderAdapter
 		};
 		scrollAction.setDescription("Scroll Lock");
 		scrollAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage(SCROLL_LOCK_GIF), null));
+			new ToolBarData(new GIcon("icon.plugin.console.scroll.lock"), null));
 
 		scrollAction.setEnabled(true);
 		scrollAction.setSelected(scrollLock);
@@ -316,7 +311,7 @@ public class ConsoleComponentProvider extends ComponentProviderAdapter
 			//
 			// sometimes an exception will occur while printing
 			// the stack trace on an exception.
-			// if that happens catch it and manually print 
+			// if that happens catch it and manually print
 			// some information about it.
 			// see org.jruby.exceptions.RaiseException
 			//
@@ -402,19 +397,6 @@ public class ConsoleComponentProvider extends ComponentProviderAdapter
 	@Override
 	public JComponent getComponent() {
 		return component;
-	}
-
-	@Override
-	public void requestFocus() {
-		KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
-		Component focusOwner = kfm.getFocusOwner();
-		if (focusOwner != null) {
-			if (SwingUtilities.isDescendingFrom(focusOwner, component)) {
-				return; // nothing to do
-			}
-		}
-
-		component.requestFocus();
 	}
 
 	public void setCurrentProgram(Program program) {

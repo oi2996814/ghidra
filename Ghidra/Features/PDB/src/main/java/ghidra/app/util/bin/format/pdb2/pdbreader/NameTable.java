@@ -16,6 +16,7 @@
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
 import java.io.IOException;
+import java.io.Writer;
 import java.util.*;
 
 import ghidra.util.exception.CancelledException;
@@ -54,8 +55,8 @@ public class NameTable {
 	// API
 	//==============================================================================================
 	/**
-	 * Constructor.
-	 * @param pdb {@link AbstractPdb} that owns this Name Table.
+	 * Constructor
+	 * @param pdb {@link AbstractPdb} that owns this Name Table
 	 */
 	public NameTable(AbstractPdb pdb) {
 		Objects.requireNonNull(pdb, "pdb cannot be null");
@@ -63,18 +64,18 @@ public class NameTable {
 	}
 
 	/**
-	 * Returns a name from the Name Table pertaining to the index argument.
-	 * @param index Index of the name to retrieve.
-	 * @return Name retrieved for the index.
+	 * Returns a name from the Name Table pertaining to the index argument
+	 * @param index index of the name to retrieve
+	 * @return name retrieved for the index
 	 */
 	public String getNameFromStreamNumber(int index) {
 		return namesByStreamNumber.get(index);
 	}
 
 	/**
-	 * Returns an index of the name argument in the {@link NameTable}.
-	 * @param name Name to look up.
-	 * @return Index of the name.
+	 * Returns an index of the name argument in the {@link NameTable}
+	 * @param name name to look up
+	 * @return index of the name
 	 */
 	public int getStreamNumberFromName(String name) {
 		Integer x = streamNumbersByName.getOrDefault(name, -1);
@@ -83,9 +84,9 @@ public class NameTable {
 
 	/**
 	 * Returns a name from the Name Table pertaining to the byte-offset in the block of names for
-	 *  the table.
-	 * @param offset Byte-offset of the name in the {@link NameTable} block.
-	 * @return Name found at offset.
+	 *  the table
+	 * @param offset byte-offset of the name in the {@link NameTable} block
+	 * @return name found at offset
 	 */
 	public String getNameStringFromOffset(int offset) {
 		if (namesByOffset == null) {
@@ -96,9 +97,9 @@ public class NameTable {
 
 	/**
 	 * IMPORTANT: This method is for testing only.  It allows us to set a basic object.
-	 *  Note: not all values are initialized.  Add a paired offset and {@link String} name.
-	 * @param offset Offset part of pair.
-	 * @param name Name part of pair.
+	 *  Note: not all values are initialized.  Add a paired offset and {@link String} name
+	 * @param offset offset part of pair
+	 * @param name name part of pair
 	 */
 	public void forTestingOnlyAddOffsetNamePair(int offset, String name) {
 		if (namesByOffset == null) {
@@ -113,21 +114,20 @@ public class NameTable {
 	//==============================================================================================
 	// TODO: Regarding String conversions... We expect that US_ASCII could be a problem, but it
 	//  is probably better than creating the String without any code set chosen at all.  Do we
-	//  need to change all processing of Strings within the PDB so that we are only creating byte 
+	//  need to change all processing of Strings within the PDB so that we are only creating byte
 	//  arrays with some notional idea (1 byte, 2 byte, possibly utf-8, utf-16, wchar_t, or
 	//  "unknown" and defer true interpretation/conversion to String until we know or until
 	//  Ghidra user can ad-hoc apply interpretations to those fields?  Needs investigation, but
 	//  not critical at this time.
 	/**
-	 * Deserializes the Directory.
-	 * @param reader {@link PdbByteReader} from which to deserialize the data.
-	 * @param monitor {@link TaskMonitor} used for checking cancellation.
-	 * @throws IOException On file seek or read, invalid parameters, bad file configuration, or
-	 *  inability to read required bytes.
-	 * @throws PdbException upon error parsing a string.
-	 * @throws CancelledException Upon user cancellation.
+	 * Deserializes the Directory
+	 * @param reader {@link PdbByteReader} from which to deserialize the data
+	 * @throws IOException on file seek or read, invalid parameters, bad file configuration, or
+	 *  inability to read required bytes
+	 * @throws PdbException upon error parsing a string
+	 * @throws CancelledException upon user cancellation
 	 */
-	void deserializeDirectory(PdbByteReader reader, TaskMonitor monitor)
+	void deserializeDirectory(PdbByteReader reader)
 			throws IOException, PdbException, CancelledException {
 
 		// Get the buffer of strings
@@ -152,10 +152,10 @@ public class NameTable {
 		streamNumbers = new int[numPairs];
 
 		// Read Present Set.  Not really needed by us, as we use the java HashMap.
-		presentList.parse(reader, monitor);
+		presentList.parse(reader, pdb.getMonitor());
 
 		// Read Deleted Set.  Not really needed by us, as we use the java HashMap.
-		deletedList.parse(reader, monitor);
+		deletedList.parse(reader, pdb.getMonitor());
 
 		// Read values of index into buffer and name index.  Load the HashMaps.
 		// Since we are using the java HashMap, we do not need to mimic the
@@ -163,7 +163,7 @@ public class NameTable {
 		// of domainSize) and do not need to store the domain and range items
 		// in a list indexed by i.
 		for (int i = 0; i < numPairs; i++) {
-			monitor.checkCanceled();
+			pdb.checkCancelled();
 			int bufOffset = reader.parseInt();
 			int streamNumber = reader.parseInt();
 			nameBufferReader.setIndex(bufOffset);
@@ -174,7 +174,7 @@ public class NameTable {
 			namesByStreamNumber.put(streamNumber, name);
 			streamNumbersByName.put(name, streamNumber);
 		}
-		deserializeNameTableStreams(monitor);
+		deserializeNameTableStreams();
 	}
 
 	// TODO: Reduce code complexity once we know the details for the various cases.  Probably
@@ -182,19 +182,18 @@ public class NameTable {
 	//  find here.
 	/**
 	 * Deserializes Name Table Streams.  An offset-to-string map is created for each stream; each
-	 *  map is placed into a stream-number-to-map map.
-	 * @param monitor {@link TaskMonitor} used for checking cancellation.
-	 * @throws IOException On file seek or read, invalid parameters, bad file configuration, or
-	 *  inability to read required bytes.
-	 * @throws PdbException upon error parsing a string.
-	 * @throws CancelledException Upon user cancellation.
+	 *  map is placed into a stream-number-to-map map
+	 * @throws IOException on file seek or read, invalid parameters, bad file configuration, or
+	 *  inability to read required bytes
+	 * @throws PdbException upon error parsing a string
+	 * @throws CancelledException upon user cancellation
 	 */
-	void deserializeNameTableStreams(TaskMonitor monitor)
+	void deserializeNameTableStreams()
 			throws IOException, PdbException, CancelledException {
 		for (int streamNumber : streamNumbers) {
-			monitor.checkCanceled();
+			pdb.checkCancelled();
 			Map<Integer, String> stringsByOffset = new HashMap<>();
-			PdbByteReader reader = pdb.getReaderForStreamNumber(streamNumber, monitor);
+			PdbByteReader reader = pdb.getReaderForStreamNumber(streamNumber);
 			if (reader.getLimit() >= 12) {
 				long hdrMagic = reader.parseUnsignedIntVal();
 				int hdrVer = reader.parseInt();
@@ -205,7 +204,7 @@ public class NameTable {
 							int length = reader.parseInt();
 							PdbByteReader stringReader = reader.getSubPdbByteReader(length);
 							while (stringReader.hasMore()) {
-								monitor.checkCanceled();
+								pdb.checkCancelled();
 								int offset = stringReader.getIndex();
 								String string = stringReader.parseNullTerminatedUtf8String();
 								stringsByOffset.put(offset, string);
@@ -234,66 +233,73 @@ public class NameTable {
 
 	/**
 	 * Dumps the Name Table.  This method is for debugging only.
-	 * @return {@link String} of pretty output.
+	 * @param writer the writer to which to write the dump
+	 * @param monitor the task monitor
+	 * @throws CancelledException upon user cancellation
+	 * @throws IOException upon issue writing to writer
 	 */
-	protected String dump() {
-		StringBuilder builder = new StringBuilder();
-		builder.append("NameTable---------------------------------------------------");
-		builder.append("\nnameBufferSize: ");
-		builder.append(nameBufferSize);
-		builder.append("\nnumPairs: ");
-		builder.append(numPairs);
-		builder.append("\ndomainSize: ");
-		builder.append(domainSize);
-		builder.append("\nmaxPossiblePresent: ");
-		builder.append(presentList.getMaxPossible());
-		builder.append("\nPresent: {");
+	void dump(Writer writer, TaskMonitor monitor) throws CancelledException, IOException {
+		PdbReaderUtils.dumpHead(writer, this);
+		writer.write("\nnameBufferSize: " + nameBufferSize);
+		writer.write("\nnumPairs: " + numPairs);
+		writer.write("\ndomainSize: " + domainSize);
+		writer.write("\nmaxPossiblePresent: " + presentList.getMaxPossible());
+		writer.write("\nPresent: {");
 		boolean firstSeen = false;
 		for (int i = 0; i < presentList.getMaxPossible(); i++) {
 			if (presentList.contains(i)) {
 				if (firstSeen) {
-					builder.append(", ");
+					writer.write(", ");
 				}
 				else {
 					firstSeen = true;
 				}
-				builder.append(i);
+				writer.write("" + i);
 			}
 		}
-		builder.append("}");
-		builder.append("\nmaxPossibleDeleted: ");
-		builder.append(deletedList.getMaxPossible());
-		builder.append("\nDeleted: {");
+		writer.write("}");
+		writer.write("\nmaxPossibleDeleted: " + deletedList.getMaxPossible());
+		writer.write("\nDeleted: {");
 		firstSeen = false;
 		for (int i = 0; i < deletedList.getMaxPossible(); i++) {
 			if (deletedList.contains(i)) {
 				if (firstSeen) {
-					builder.append(", ");
+					writer.write(", ");
 				}
 				else {
 					firstSeen = true;
 				}
-				builder.append(i);
+				writer.write("" + i);
 			}
 		}
-		builder.append("}\n");
-		builder.append("------------------------------------------------------------\n");
+		writer.write("}\n");
+		writer.write("------------------------------------------------------------\n");
 		for (String name : streamNumbersByName.keySet()) {
-			builder.append(name);
-			builder.append(" : ");
-			builder.append(streamNumbersByName.get(name));
-			builder.append("\n");
+			writer.write(name + " : " + streamNumbersByName.get(name) + "\n");
 		}
-		builder.append("------------------------------------------------------------\n");
+		writer.write("------------------------------------------------------------\n");
 		for (int streamNumber : namesByStreamNumber.keySet()) {
-			builder.append(streamNumber);
-			builder.append(" : ");
-			builder.append(namesByStreamNumber.get(streamNumber));
-			builder.append("\n");
+			writer.write(streamNumber + " : " + namesByStreamNumber.get(streamNumber) + "\n");
 		}
-		// TODO: output map entries for each table.
-		builder.append("End NameTable-----------------------------------------------\n");
-		return builder.toString();
+		dumpMapTables(writer, monitor);
+		PdbReaderUtils.dumpTail(writer, this);
+	}
+
+	private void dumpMapTables(Writer writer, TaskMonitor monitor)
+			throws CancelledException, IOException {
+		for (int streamNumber : streamNumbers) {
+			pdb.checkCancelled();
+			writer.write("StreamNameTable---------------------------------------------\n");
+			writer.write("streamNumber: " + streamNumber + "\n");
+			Map<Integer, String> stringsByOffset = stringTablesByStreamNumber.get(streamNumber);
+			ArrayList<Integer> sortedKeys = new ArrayList<>(stringsByOffset.keySet());
+			Collections.sort(sortedKeys);
+			for (int offset : sortedKeys) {
+				String str = stringsByOffset.get(offset);
+				writer.write(offset + ": " + str + "\n");
+			}
+			writer.write("End StreamNameTable-----------------------------------------\n");
+		}
 	}
 
 }

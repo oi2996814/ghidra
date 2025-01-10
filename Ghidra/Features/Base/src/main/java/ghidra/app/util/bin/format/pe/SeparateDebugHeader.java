@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,11 +19,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import generic.continues.GenericFactory;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.ByteProvider;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.app.util.bin.format.pe.debug.DebugDirectoryParser;
-import ghidra.util.Conv;
 import ghidra.util.Msg;
 
 /**
@@ -72,7 +70,6 @@ public class SeparateDebugHeader implements OffsetValidator {
 	private int[] reserved = new int[2];
 
 	private SectionHeader[] sections;
-	private String[] exportedNames;
 	private DebugDirectoryParser parser;
 
 	/**
@@ -80,9 +77,8 @@ public class SeparateDebugHeader implements OffsetValidator {
 	 * @param bp the byte provider
 	 * @throws IOException if an I/O error occurs.
 	 */
-	public SeparateDebugHeader(GenericFactory factory, ByteProvider bp) throws IOException {
-		FactoryBundledWithBinaryReader reader =
-			new FactoryBundledWithBinaryReader(factory, bp, true);
+	public SeparateDebugHeader(ByteProvider bp) throws IOException {
+		BinaryReader reader = new BinaryReader(bp, true);
 
 		reader.setPointerIndex(0);
 
@@ -118,23 +114,19 @@ public class SeparateDebugHeader implements OffsetValidator {
 			ptr += SectionHeader.IMAGE_SIZEOF_SECTION_HEADER;
 		}
 
-		long tmp = ptr;
+		BinaryReader stringReader = reader.clone(ptr);
 		List<String> exportedNameslist = new ArrayList<>();
 		while (true) {
-			String str = reader.readAsciiString(tmp);
-			if (str == null || str.length() == 0) {
+			String str = stringReader.readNextAsciiString();
+			if (str.isEmpty()) {
 				break;
 			}
-			tmp += str.length() + 1;
 			exportedNameslist.add(str);
 		}
-		exportedNames = new String[exportedNameslist.size()];
-		exportedNameslist.toArray(exportedNames);
 
 		ptr += exportedNamesSize;
 
-		parser =
-			DebugDirectoryParser.createDebugDirectoryParser(reader, ptr, debugDirectorySize, this);
+		parser = new DebugDirectoryParser(reader, ptr, debugDirectorySize, sizeOfImage);
 	}
 
 	/**
@@ -260,8 +252,8 @@ public class SeparateDebugHeader implements OffsetValidator {
 	@Override
 	public boolean checkPointer(long ptr) {
 		for (int i = 0; i < sections.length; ++i) {
-			long rawSize = sections[i].getSizeOfRawData() & Conv.INT_MASK;
-			long rawPtr = sections[i].getPointerToRawData() & Conv.INT_MASK;
+			long rawSize = Integer.toUnsignedLong(sections[i].getSizeOfRawData());
+			long rawPtr = Integer.toUnsignedLong(sections[i].getPointerToRawData());
 
 			if (ptr >= rawPtr && ptr <= rawPtr + rawSize) { // <= allows data after the last section, which is OK
 				return true;

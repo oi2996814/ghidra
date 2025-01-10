@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,17 @@
  */
 /// \file transform.hh
 /// \brief Classes for building large scale transforms of function data-flow
-#ifndef __TRANSFORM__
-#define __TRANSFORM__
+#ifndef __TRANSFORM_HH__
+#define __TRANSFORM_HH__
 
 #include "varnode.hh"
+
+namespace ghidra {
+
 class Funcdata;			// Forward declaration
 class TransformOp;
+
+extern AttributeId ATTRIB_VECTOR_LANE_SIZES;	///< Marshaling attribute "vector_lane_sizes"
 
 /// \brief Placeholder node for Varnode that will exist after a transform is applied to a function
 class TransformVar {
@@ -82,6 +87,7 @@ private:
 public:
   TransformVar *getOut(void) const { return output; }	///< Get the output placeholder variable for \b this operator
   TransformVar *getIn(int4 i) const { return input[i]; }	///< Get the i-th input placeholder variable for \b this
+  void inheritIndirect(PcodeOp *indOp);		///< Set \e indirect \e creation flags for \b this based on given INDIRECT
 };
 
 /// \brief Describes a (register) storage location and the ways it might be split into lanes
@@ -107,9 +113,9 @@ private:
   int4 wholeSize;		///< Size of the whole register
   uint4 sizeBitMask;		///< A 1-bit for every permissible lane size
 public:
-  LanedRegister(void) { wholeSize = 0; sizeBitMask = 0; }	///< Constructor for use with restoreXml
+  LanedRegister(void) { wholeSize = 0; sizeBitMask = 0; }	///< Constructor for use with decode
   LanedRegister(int4 sz,uint4 mask) { wholeSize = sz; sizeBitMask = mask; }	///< Constructor
-  bool restoreXml(const Element *el,const AddrSpaceManager *manage);	///< Restore object from XML stream
+  void parseSizes(int4 registerSize,string laneSizes);			///< Parse a \e vector_lane_sizes attribute
   int4 getWholeSize(void) const { return wholeSize; }	///< Get the size in bytes of the whole laned register
   uint4 getSizeBitMask(void) const { return sizeBitMask; }	///< Get the bit mask of possible lane sizes
   void addLaneSize(int4 size) { sizeBitMask |= ((uint4)1 << size); }	///< Add a new \e size to the allowed list
@@ -246,4 +252,5 @@ inline bool TransformManager::preexistingGuard(int4 slot,TransformVar *rvn)
   return true;			// The op was not (will not be) visited on slot 0, build now
 }
 
+} // End namespace ghidra
 #endif

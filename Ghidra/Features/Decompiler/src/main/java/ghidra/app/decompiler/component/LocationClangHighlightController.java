@@ -15,6 +15,8 @@
  */
 package ghidra.app.decompiler.component;
 
+import org.apache.commons.lang3.StringUtils;
+
 import docking.widgets.EventTrigger;
 import docking.widgets.fieldpanel.field.Field;
 import docking.widgets.fieldpanel.support.FieldLocation;
@@ -40,10 +42,15 @@ public class LocationClangHighlightController extends ClangHighlightController {
 			return;
 		}
 
+		String text = tok.getText();
+		if (StringUtils.isBlank(text)) {
+			return; // do not highlight whitespace
+		}
+
 		addPrimaryHighlight(tok, defaultHighlightColor);
 		if (tok instanceof ClangSyntaxToken) {
 			addPrimaryHighlightToTokensForParenthesis((ClangSyntaxToken) tok, defaultParenColor);
-			addBraceHighlight((ClangSyntaxToken) tok, defaultParenColor);
+			addPrimaryHighlightToTokensForBrace((ClangSyntaxToken) tok, defaultParenColor);
 		}
 	}
 }

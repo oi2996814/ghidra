@@ -18,6 +18,7 @@ package mdemangler.typeinfo;
 import mdemangler.MDException;
 import mdemangler.MDMang;
 import mdemangler.datatype.modifier.MDBasedAttribute;
+import mdemangler.typeinfo.MDTypeInfo.PointerFormat;
 
 /**
  * This class parses the mangled string at the current offset to determine and
@@ -143,11 +144,16 @@ public class MDTypeInfoParser {
 				// hasArgs = false; //no reason to have set true
 				// dmang.parseInfoPop();
 				break;
-			case 'A':
+			case 'A': // A, B, I, J, Q, R: These might be "this adjustment" with no adjustment
 			case 'B':
 				dmang.increment();
 				typeInfo = new MDMemberFunctionInfo(dmang);
 				typeInfo.setPrivate();
+				// When considering code 'A' to be at index 0, then for this and other processing
+				// below, those that have an *even* index are *near* pointers and those with
+				// an *odd* index are *far* pointers
+				typeInfo.setPointerFormat(
+					((code - 'A') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
 			case 'C':
 			case 'D':
@@ -168,12 +174,16 @@ public class MDTypeInfoParser {
 				dmang.increment();
 				typeInfo = new MDVFAdjustor(dmang);
 				typeInfo.setPrivate();
+				typeInfo.setPointerFormat(
+					((code - 'A') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
-			case 'I':
+			case 'I': // A, B, I, J, Q, R: These might be "this adjustment" with no adjustment
 			case 'J':
 				dmang.increment();
 				typeInfo = new MDMemberFunctionInfo(dmang);
 				typeInfo.setProtected();
+				typeInfo.setPointerFormat(
+					((code - 'A') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
 			case 'K':
 			case 'L':
@@ -194,12 +204,16 @@ public class MDTypeInfoParser {
 				dmang.increment();
 				typeInfo = new MDVFAdjustor(dmang);
 				typeInfo.setProtected();
+				typeInfo.setPointerFormat(
+					((code - 'A') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
-			case 'Q':
+			case 'Q': // A, B, I, J, Q, R: These might be "this adjustment" with no adjustment
 			case 'R':
 				dmang.increment();
 				typeInfo = new MDMemberFunctionInfo(dmang);
 				typeInfo.setPublic();
+				typeInfo.setPointerFormat(
+					((code - 'A') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
 			case 'S':
 			case 'T':
@@ -220,6 +234,8 @@ public class MDTypeInfoParser {
 				dmang.increment();
 				typeInfo = new MDVFAdjustor(dmang);
 				typeInfo.setPublic();
+				typeInfo.setPointerFormat(
+					((code - 'A') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
 			case 'Y':
 			case 'Z':
@@ -264,21 +280,30 @@ public class MDTypeInfoParser {
 		char ch = dmang.getAndIncrement();
 		switch (ch) {
 			// UINFO: (0-5) isFunction, isMember, isvtordisp (0-5)
-			// UINFO: val%2==0: near; val%2==0: far;
+			// UINFO: val%2==0: near; val%2==1: far;
 			case '0':
 			case '1':
 				typeInfo = new MDVtordisp(dmang);
 				typeInfo.setPrivate();
+				// When considering code '0' to be at index 0, then for this and other processing
+				// below, those that have an *even* index are *near* pointers and those with
+				// an *odd* index are *far* pointers
+				typeInfo.setPointerFormat(
+					((ch - '0') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
 			case '2':
 			case '3':
 				typeInfo = new MDVtordisp(dmang);
 				typeInfo.setProtected();
+				typeInfo.setPointerFormat(
+					((ch - '0') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
 			case '4':
 			case '5':
 				typeInfo = new MDVtordisp(dmang);
 				typeInfo.setPublic();
+				typeInfo.setPointerFormat(
+					((ch - '0') % 2 == 0) ? PointerFormat._NEAR : PointerFormat._FAR);
 				break;
 			case '$':
 				char ch2 = dmang.getAndIncrement();

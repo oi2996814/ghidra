@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 package ghidra.program.flatapi;
+
+import static ghidra.app.plugin.core.clear.ClearOptions.ClearType.*;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
@@ -29,13 +31,21 @@ import ghidra.app.cmd.label.SetLabelPrimaryCmd;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.plugin.core.clear.ClearCmd;
 import ghidra.app.plugin.core.clear.ClearOptions;
-import ghidra.app.plugin.core.searchmem.RegExSearchData;
 import ghidra.app.script.GhidraScript;
+import ghidra.features.base.memsearch.bytesource.AddressableByteSource;
+import ghidra.features.base.memsearch.bytesource.ProgramByteSource;
+import ghidra.features.base.memsearch.gui.SearchSettings;
+import ghidra.features.base.memsearch.matcher.ByteMatcher;
+import ghidra.features.base.memsearch.matcher.RegExByteMatcher;
+import ghidra.features.base.memsearch.searcher.MemoryMatch;
+import ghidra.features.base.memsearch.searcher.MemorySearcher;
 import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.*;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
+import ghidra.program.model.lang.CompilerSpec;
+import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
 import ghidra.program.model.scalar.Scalar;
@@ -43,12 +53,10 @@ import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.program.util.AddressEvaluator;
 import ghidra.program.util.string.*;
-import ghidra.util.Conv;
 import ghidra.util.ascii.AsciiCharSetRecognizer;
 import ghidra.util.datastruct.Accumulator;
 import ghidra.util.datastruct.ListAccumulator;
 import ghidra.util.exception.*;
-import ghidra.util.search.memory.*;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -56,8 +64,8 @@ import ghidra.util.task.TaskMonitor;
  * <p>
  * NOTE:
  * <ol>
- * 	<li>NO METHODS *SHOULD* EVER BE REMOVED FROM THIS CLASS.
- * 	<li>NO METHOD SIGNATURES *SHOULD* EVER BE CHANGED IN THIS CLASS.
+ * 	<li>NO METHODS *SHOULD* EVER BE REMOVED FROM THIS CLASS.</li>
+ * 	<li>NO METHOD SIGNATURES *SHOULD* EVER BE CHANGED IN THIS CLASS.</li>
  * </ol>
  * <p>
  * This class is used by GhidraScript.
@@ -154,16 +162,14 @@ public class FlatProgramAPI {
 	}
 
 	/**
-	 * Returns the path to the program's executable file.
+	 * Returns the {@link File} that the program was originally imported from.  It does not 
+	 * necessarily still exist on the file system.
+	 * <p>
 	 * For example, <code>c:\temp\test.exe</code>.
-	 * @return path to program's executable file
+	 * @return the {@link File} that the program was originally imported from
 	 */
 	public final File getProgramFile() {
-		File f = new File(currentProgram.getExecutablePath());
-		if (f.exists()) {
-			return f;
-		}
-		return null;
+		return new File(currentProgram.getExecutablePath());
 	}
 
 	/**
@@ -187,7 +193,7 @@ public class FlatProgramAPI {
 	 * only necessary to analyze changes and not the entire program which can take much
 	 * longer and affect more of the program than is necessary.
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public void analyze(Program program) {
 		analyzeAll(program);
 	}
@@ -246,7 +252,7 @@ public class FlatProgramAPI {
 	/**
 	 * Clears the code units (instructions or data) in the specified range.
 	 * @param start the start address
-	 * @param end   the end address
+	 * @param end   the end address (INCLUSIVE)
 	 * @throws CancelledException if cancelled
 	 */
 	public final void clearListing(Address start, Address end) throws CancelledException {
@@ -291,19 +297,48 @@ public class FlatProgramAPI {
 			boolean equates, boolean userReferences, boolean analysisReferences,
 			boolean importReferences, boolean defaultReferences, boolean bookmarks) {
 
+		return this.clearListing(set, code, code, symbols, comments, properties, functions,
+			registers, equates, userReferences, analysisReferences, importReferences,
+			defaultReferences, bookmarks);
+	}
+
+	/**
+	 * Clears the listing in the specified address set.
+	 * @param set  the address set where to clear
+	 * @param instructions true if instructions should be cleared
+	 * @param data true if defined data should be cleared
+	 * @param symbols true if symbols should be cleared
+	 * @param comments true if comments should be cleared
+	 * @param properties true if properties should be cleared
+	 * @param functions true if functions should be cleared
+	 * @param registers true if registers should be cleared
+	 * @param equates true if equates should be cleared
+	 * @param userReferences true if user references should be cleared
+	 * @param analysisReferences true if analysis references should be cleared
+	 * @param importReferences true if import references should be cleared
+	 * @param defaultReferences true if default references should be cleared
+	 * @param bookmarks true if bookmarks should be cleared
+	 * @return true if the address set was successfully cleared
+	 */
+	public final boolean clearListing(AddressSetView set, boolean instructions,
+			boolean data, boolean symbols, boolean comments, boolean properties, boolean functions,
+			boolean registers, boolean equates, boolean userReferences, boolean analysisReferences,
+			boolean importReferences, boolean defaultReferences, boolean bookmarks) {
+
 		ClearOptions options = new ClearOptions();
-		options.setClearCode(code);
-		options.setClearSymbols(symbols);
-		options.setClearComments(comments);
-		options.setClearProperties(properties);
-		options.setClearFunctions(functions);
-		options.setClearRegisters(registers);
-		options.setClearEquates(equates);
-		options.setClearUserReferences(userReferences);
-		options.setClearAnalysisReferences(analysisReferences);
-		options.setClearImportReferences(importReferences);
-		options.setClearDefaultReferences(defaultReferences);
-		options.setClearBookmarks(bookmarks);
+		options.setShouldClear(INSTRUCTIONS, instructions);
+		options.setShouldClear(DATA, data);
+		options.setShouldClear(SYMBOLS, symbols);
+		options.setShouldClear(COMMENTS, comments);
+		options.setShouldClear(PROPERTIES, properties);
+		options.setShouldClear(FUNCTIONS, functions);
+		options.setShouldClear(REGISTERS, registers);
+		options.setShouldClear(EQUATES, equates);
+		options.setShouldClear(USER_REFERENCES, userReferences);
+		options.setShouldClear(ANALYSIS_REFERENCES, analysisReferences);
+		options.setShouldClear(IMPORT_REFERENCES, importReferences);
+		options.setShouldClear(DEFAULT_REFERENCES, defaultReferences);
+		options.setShouldClear(BOOKMARKS, bookmarks);
 
 		ClearCmd cmd = new ClearCmd(set, options);
 		return cmd.applyTo(currentProgram, monitor);
@@ -354,7 +389,7 @@ public class FlatProgramAPI {
 	 * NOTE: if more than block exists with the same name, the first
 	 * block with that name will be returned.
 	 * @param name the name of the requested block
-	 * @return the the memory block with the specified name
+	 * @return the memory block with the specified name
 	 */
 	public final MemoryBlock getMemoryBlock(String name) {
 		return currentProgram.getMemory().getBlock(name);
@@ -408,7 +443,7 @@ public class FlatProgramAPI {
 	 * @deprecated use {@link #createLabel(Address, String, boolean)} instead.
 	 * Deprecated in Ghidra 7.4
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public final Symbol createSymbol(Address address, String name, boolean makePrimary)
 			throws Exception {
 		return createLabel(address, name, makePrimary);
@@ -446,9 +481,8 @@ public class FlatProgramAPI {
 	 */
 	public final Symbol createLabel(Address address, String name, Namespace namespace,
 			boolean makePrimary, SourceType sourceType) throws Exception {
-		Symbol symbol;
 		SymbolTable symbolTable = currentProgram.getSymbolTable();
-		symbol = symbolTable.createLabel(address, name, namespace, sourceType);
+		Symbol symbol = symbolTable.createLabel(address, name, namespace, sourceType);
 		if (makePrimary && !symbol.isPrimary()) {
 			SetLabelPrimaryCmd cmd = new SetLabelPrimaryCmd(address, name, namespace);
 			if (cmd.applyTo(currentProgram)) {
@@ -461,7 +495,7 @@ public class FlatProgramAPI {
 	/**
 	 * @deprecated use {@link #createLabel(Address, String, boolean, SourceType)} instead. Deprecated in Ghidra 7.4
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public final Symbol createSymbol(Address address, String name, boolean makePrimary,
 			boolean makeUnique, SourceType sourceType) throws Exception {
 		return createLabel(address, name, makePrimary, sourceType);
@@ -773,15 +807,38 @@ public class FlatProgramAPI {
 	public final Address[] findBytes(AddressSetView set, String byteString, int matchLimit,
 			int alignment) {
 
-		return findBytes(set, byteString, matchLimit, alignment, false);
+		if (matchLimit <= 0) {
+			matchLimit = 500;
+		}
+
+		SearchSettings settings = new SearchSettings().withAlignment(alignment);
+		ByteMatcher matcher = new RegExByteMatcher(byteString, settings);
+		AddressableByteSource byteSource = new ProgramByteSource(currentProgram);
+		Memory memory = currentProgram.getMemory();
+		AddressSet intersection = memory.getLoadedAndInitializedAddressSet().intersect(set);
+
+		MemorySearcher searcher = new MemorySearcher(byteSource, matcher, intersection, matchLimit);
+		Accumulator<MemoryMatch> accumulator = new ListAccumulator<>();
+		searcher.findAll(accumulator, monitor);
+
+		//@formatter:off
+		List<Address> addresses =
+			accumulator.stream()
+                       .map(r -> r.getAddress())
+                       .collect(Collectors.toList());
+		//@formatter:on
+		return addresses.toArray(new Address[addresses.size()]);
 	}
 
 	/**
+	 * This method has been deprecated, use {@link #findBytes(Address, String, int, int)} instead.
+	 * The concept of searching and finding matches that span gaps (address ranges where no memory
+	 * blocks have been defined), is no longer supported. If this capability has value to anyone, 
+	 * please contact the Ghidra team and let us know.
+	 * <P>
 	 * Finds a byte pattern within an addressSet.
 	 *
-	 * Note: When searchAcrossAddressGaps is set to true, the ranges within the addressSet are
-	 * treated as a contiguous set when searching.
-	 *
+	 * Note: The ranges within the addressSet are NOT treated as a contiguous set when searching
 	 * <p>
 	 * The <code>byteString</code> may contain regular expressions.  The following
 	 * highlights some example search strings (note the use of double backslashes ("\\")):
@@ -796,49 +853,21 @@ public class FlatProgramAPI {
 	 * @param byteString the byte pattern for which to search
 	 * @param matchLimit The number of matches to which the search should be restricted
 	 * @param alignment byte alignment to use for search starts. For example, a value of
-	 *        1 searches from every byte.  A value of 2 only matches runs that begin on a even
-	 *        address boundary.
-	 * @param searchAcrossAddressGaps when set to 'true' searches for matches across the gaps
-	 *        of each addressRange contained in the addresSet.
+	 *    1 searches from every byte.  A value of 2 only matches runs that begin on a even
+	 *    address boundary.
+	 * @param searchAcrossAddressGaps This parameter is no longer supported and its value is
+	 * ignored. Previously, if true, match results were allowed to span non-continguous memory
+	 * ranges. 
 	 * @return the start addresses that contain byte patterns that match the given byteString
 	 * @throws IllegalArgumentException if the byteString is not a valid regular expression
 	 * @see #findBytes(Address, String)
+	 * 
+	 * @deprecated see description for details.
 	 */
+	@Deprecated(since = "11.3", forRemoval = true)
 	public final Address[] findBytes(AddressSetView set, String byteString, int matchLimit,
 			int alignment, boolean searchAcrossAddressGaps) {
-
-		if (matchLimit <= 0) {
-			matchLimit = 500;
-		}
-
-		RegExSearchData searchData = RegExSearchData.createRegExSearchData(byteString);
-
-		//@formatter:off
-		SearchInfo searchInfo = new SearchInfo(searchData,
-											   matchLimit,
-											   false,     // search selection
-											   true,      // search forward
-											   alignment,
-											   true,      // include non-loaded blocks
-											   null);
-		//@formatter:on
-
-		Memory memory = currentProgram.getMemory();
-		AddressSet intersection = memory.getLoadedAndInitializedAddressSet().intersect(set);
-
-		RegExMemSearcherAlgorithm searcher = new RegExMemSearcherAlgorithm(searchInfo, intersection,
-			currentProgram, searchAcrossAddressGaps);
-
-		Accumulator<MemSearchResult> accumulator = new ListAccumulator<>();
-		searcher.search(accumulator, monitor);
-
-		//@formatter:off
-		List<Address> addresses =
-			accumulator.stream()
-                       .map(r -> r.getAddress())
-                       .collect(Collectors.toList());
-		//@formatter:on
-		return addresses.toArray(new Address[addresses.size()]);
+		return findBytes(set, byteString, matchLimit, alignment);
 	}
 
 	/**
@@ -1083,9 +1112,9 @@ public class FlatProgramAPI {
 	}
 
 	/**
-	 * Returns the function defined before the specified function in address order.
+	 * Returns the function defined after the specified function in address order.
 	 * @param function the function
-	 * @return the function defined before the specified function
+	 * @return the function defined after the specified function
 	 */
 	public final Function getFunctionAfter(Function function) {
 		if (function == null) {
@@ -1132,7 +1161,7 @@ public class FlatProgramAPI {
 	 * 			   no longer have to be unique. Use {@link #getGlobalFunctions(String)}
 	 * 			   Deprecated in Ghidra 7.4
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public final Function getFunction(String name) {
 		List<Function> globalFunctions = currentProgram.getListing().getGlobalFunctions(name);
 		return globalFunctions.isEmpty() ? null : globalFunctions.get(0);
@@ -1199,7 +1228,7 @@ public class FlatProgramAPI {
 	 * @return the last instruction in the current program
 	 */
 	public final Instruction getLastInstruction() {
-		Address address = currentProgram.getMinAddress();
+		Address address = currentProgram.getMaxAddress();
 		InstructionIterator iterator = currentProgram.getListing().getInstructions(address, false);
 		if (iterator.hasNext()) {
 			return iterator.next();
@@ -1333,7 +1362,7 @@ public class FlatProgramAPI {
 
 	/**
 	 * Returns the defined data after the specified data or null if no data exists.
-	 * @param data preceeding data
+	 * @param data preceding data
 	 * @return the defined data after the specified data or null if no data exists
 	 */
 	public final Data getDataAfter(Data data) {
@@ -1386,7 +1415,7 @@ public class FlatProgramAPI {
 	 * @deprecated Since the same label name can be at the same address if in a different namespace,
 	 * this method is ambiguous. Use {@link #getSymbolAt(Address, String, Namespace)} instead.
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public final Symbol getSymbolAt(Address address, String name) {
 		SymbolIterator symbols = currentProgram.getSymbolTable().getSymbolsAsIterator(address);
 		for (Symbol symbol : symbols) {
@@ -1480,7 +1509,7 @@ public class FlatProgramAPI {
 	 * @throws IllegalStateException if there is more than one symbol with that name.
 	 * @deprecated use {@link #getSymbols(String, Namespace)}
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public final Symbol getSymbol(String name, Namespace namespace) {
 		List<Symbol> symbols = currentProgram.getSymbolTable().getSymbols(name, namespace);
 		if (symbols.size() == 1) {
@@ -1506,13 +1535,73 @@ public class FlatProgramAPI {
 	/**
 	 * Returns the non-function namespace with the given name contained inside the
 	 * specified parent namespace.
-	 * Pass <code>null</code> for namespace to indicate the global namespace.
+	 * Pass <code>null</code> for parent to indicate the global namespace.
 	 * @param parent the parent namespace, or null for global namespace
 	 * @param namespaceName the requested namespace's name
 	 * @return the namespace with the given name or null if not found
 	 */
 	public final Namespace getNamespace(Namespace parent, String namespaceName) {
 		return currentProgram.getSymbolTable().getNamespace(namespaceName, parent);
+	}
+
+	/**
+		 * Creates a new {@link Namespace} with the given name contained inside the
+		 * specified parent namespace.
+		 * Pass <code>null</code> for parent to indicate the global namespace.
+		 * If a {@link Namespace} or {@link GhidraClass} with the given name already exists, the
+		 * existing one will be returned.
+		 * @param parent the parent namespace, or null for global namespace
+		 * @param namespaceName the requested namespace's name
+		 * @return the namespace with the given name
+		 * @throws DuplicateNameException if a {@link Library} symbol exists with the given name
+		 * @throws InvalidInputException if the name is invalid
+		 * @throws IllegalArgumentException if parent Namespace does not correspond to
+		 * <code>currerntProgram</code>
+		 */
+	public final Namespace createNamespace(Namespace parent, String namespaceName)
+			throws DuplicateNameException, InvalidInputException {
+		SymbolTable symbolTable = currentProgram.getSymbolTable();
+		Namespace ns = symbolTable.getNamespace(namespaceName, parent);
+		if (ns != null) {
+			SymbolType type = ns.getSymbol().getSymbolType();
+			if (type == SymbolType.NAMESPACE || type == SymbolType.CLASS) {
+				return ns;
+			}
+		}
+		return symbolTable.createNameSpace(parent, namespaceName, SourceType.USER_DEFINED);
+	}
+
+	/**
+	 * Creates a new {@link GhidraClass} with the given name contained inside the
+	 * specified parent namespace.
+	 * Pass <code>null</code> for parent to indicate the global namespace.
+	 * If a GhidraClass with the given name already exists, the existing one will be returned.
+	 * @param parent the parent namespace, or null for global namespace
+	 * @param className the requested classes name
+	 * @return the GhidraClass with the given name
+	 * @throws InvalidInputException if the name is invalid
+	 * @throws DuplicateNameException thrown if a {@link Library} or {@link Namespace}
+	 * symbol already exists with the given name.
+	 * Use {@link SymbolTable#convertNamespaceToClass(Namespace)} for converting an
+	 * existing Namespace to a GhidraClass.
+	 * @throws IllegalArgumentException if the given parent namespace is not from
+	 * the {@link #currentProgram}.
+	 * @throws ConcurrentModificationException if the given parent has been deleted
+	 * @throws IllegalArgumentException if parent Namespace does not correspond to
+	 * <code>currerntProgram</code>
+	 * @see SymbolTable#convertNamespaceToClass(Namespace)
+	 */
+	public final GhidraClass createClass(Namespace parent, String className)
+			throws DuplicateNameException, InvalidInputException {
+		SymbolTable symbolTable = currentProgram.getSymbolTable();
+		Namespace ns = symbolTable.getNamespace(className, parent);
+		if (ns != null) {
+			SymbolType type = ns.getSymbol().getSymbolType();
+			if (type == SymbolType.CLASS) {
+				return (GhidraClass) ns;
+			}
+		}
+		return symbolTable.createClass(parent, className, SourceType.USER_DEFINED);
 	}
 
 	/**
@@ -1526,7 +1615,7 @@ public class FlatProgramAPI {
 	 * @deprecated This method is deprecated because it did not allow you to include the
 	 * largest possible address.  Instead use the one that takes a start address and a length.
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public final ProgramFragment createFragment(String fragmentName, Address start, Address end)
 			throws DuplicateNameException, NotFoundException {
 		ProgramModule module = currentProgram.getListing().getDefaultRootModule();
@@ -1560,7 +1649,7 @@ public class FlatProgramAPI {
 	 * @deprecated This method is deprecated because it did not allow you to include the
 	 * largest possible address.  Instead use the one that takes a start address and a length.
 	 */
-	@Deprecated
+	@Deprecated(since = "7.4", forRemoval = true)
 	public final ProgramFragment createFragment(ProgramModule module, String fragmentName,
 			Address start, Address end) throws DuplicateNameException, NotFoundException {
 		ProgramFragment fragment = getFragment(module, fragmentName);
@@ -1644,9 +1733,10 @@ public class FlatProgramAPI {
 	 * @param address the address at which to create a new Data object.
 	 * @param datatype the Data Type that describes the type of Data object to create.
 	 * @return the newly created Data object
-	 * @throws Exception if there is any exception
+	 * @throws CodeUnitInsertionException if a conflicting code unit already exists
 	 */
-	public final Data createData(Address address, DataType datatype) throws Exception {
+	public final Data createData(Address address, DataType datatype)
+			throws CodeUnitInsertionException {
 		Listing listing = currentProgram.getListing();
 		Data d = listing.getDefinedDataAt(address);
 		if (d != null) {
@@ -1855,7 +1945,7 @@ public class FlatProgramAPI {
 	 * @return a new address with the specified offset in the default address space
 	 */
 	public final Address toAddr(int offset) {
-		return toAddr(offset & Conv.INT_MASK);
+		return toAddr(Integer.toUnsignedLong(offset));
 	}
 
 	/**
@@ -1878,9 +1968,9 @@ public class FlatProgramAPI {
 	}
 
 	/**
-	 * Returns the 'byte' value at the specified address in memory.
+	 * Returns the signed 'byte' value at the specified address in memory.
 	 * @param address the address
-	 * @return the 'byte' value at the specified address in memory
+	 * @return the signed 'byte' value at the specified address in memory
 	 * @throws MemoryAccessException if the memory is not readable
 	 */
 	public final byte getByte(Address address) throws MemoryAccessException {
@@ -1888,11 +1978,11 @@ public class FlatProgramAPI {
 	}
 
 	/**
-	 * Reads length number of bytes starting at the specified address.
+	 * Reads length number of signed bytes starting at the specified address.
 	 * Note: this could be inefficient if length is large
 	 * @param address the address to start reading
 	 * @param length the number of bytes to read
-	 * @return an array of bytes
+	 * @return an array of signed bytes
 	 * @throws MemoryAccessException if memory does not exist or is uninitialized
 	 * @see ghidra.program.model.mem.Memory
 	 */
@@ -2429,7 +2519,16 @@ public class FlatProgramAPI {
 	}
 
 	/**
-	 * Opens a Data Type Archive
+	 * Opens an existing File Data Type Archive.
+	 * <p>
+	 * <B>NOTE:</B> If archive has an assigned architecture, issues may arise due to a revised or
+	 * missing {@link Language}/{@link CompilerSpec} which will result in a warning but not
+	 * prevent the archive from being opened.  Such a warning condition will be logged and may 
+	 * result in missing or stale information for existing datatypes which have architecture related
+	 * data.  In some case it may be appropriate to 
+	 * {@link FileDataTypeManager#getWarning() check for warnings} on the returned archive
+	 * object prior to its use.
+	 * 
 	 * @param archiveFile the archive file to open
 	 * @param readOnly should file be opened read only
 	 * @return the data type manager
@@ -2437,8 +2536,7 @@ public class FlatProgramAPI {
 	 */
 	public final FileDataTypeManager openDataTypeArchive(File archiveFile, boolean readOnly)
 			throws Exception {
-		FileDataTypeManager dtfm = FileDataTypeManager.openFileArchive(archiveFile, !readOnly);
-		return dtfm;
+		return FileDataTypeManager.openFileArchive(archiveFile, !readOnly);
 	}
 
 	/**

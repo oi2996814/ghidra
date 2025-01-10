@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,11 +17,12 @@ package ghidra.app.plugin.core.symtable;
 
 import java.awt.event.MouseEvent;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 import javax.swing.JComponent;
 
 import docking.ActionContext;
 import docking.WindowPosition;
+import generic.theme.GIcon;
 import ghidra.app.context.ProgramActionContext;
 import ghidra.app.util.SymbolInspector;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
@@ -30,11 +31,10 @@ import ghidra.program.model.symbol.Symbol;
 import ghidra.util.HelpLocation;
 import ghidra.util.Swing;
 import ghidra.util.table.GhidraTable;
-import resources.ResourceManager;
 
 class ReferenceProvider extends ComponentProviderAdapter {
 
-	private static final ImageIcon ICON = ResourceManager.loadImage("images/table_go.png");
+	private static final Icon ICON = new GIcon("icon.plugin.symboltable.referencetable.provider");
 
 	private SymbolTablePlugin plugin;
 	private SymbolReferenceModel referenceKeyModel;
@@ -56,7 +56,7 @@ class ReferenceProvider extends ComponentProviderAdapter {
 		referenceKeyModel =
 			new SymbolReferenceModel(plugin.getBlockModelService(), plugin.getTool());
 		referencePanel =
-			new ReferencePanel(this, referenceKeyModel, renderer, plugin.getGoToService());
+			new ReferencePanel(this, referenceKeyModel, renderer);
 
 		addToTool();
 	}
@@ -85,9 +85,9 @@ class ReferenceProvider extends ComponentProviderAdapter {
 		}
 	}
 
-	void symbolRemoved(Symbol symbol) {
+	void symbolRemoved(long symbolId) {
 		if (isVisible()) {
-			referenceKeyModel.symbolRemoved(symbol);
+			referenceKeyModel.symbolRemoved(symbolId);
 		}
 	}
 

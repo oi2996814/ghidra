@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,7 @@ package ghidra.app.util.bin.format.pe;
 import java.io.IOException;
 import java.util.*;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSpace;
@@ -41,24 +41,12 @@ public class DelayImportDataDirectory extends DataDirectory {
 
     private DelayImportDescriptor [] descriptors; 
 
-    static DelayImportDataDirectory createDelayImportDataDirectory(
-            NTHeader ntHeader, FactoryBundledWithBinaryReader reader)
-            throws IOException {
-        DelayImportDataDirectory delayImportDataDirectory = (DelayImportDataDirectory) reader.getFactory().create(DelayImportDataDirectory.class);
-        delayImportDataDirectory.initDelayImportDataDirectory(ntHeader, reader);
-        return delayImportDataDirectory;
-    }
-
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public DelayImportDataDirectory() {}
-
-	private void initDelayImportDataDirectory(NTHeader ntHeader, FactoryBundledWithBinaryReader reader) throws IOException {
+	DelayImportDataDirectory(NTHeader ntHeader, BinaryReader reader) throws IOException {
 		processDataDirectory(ntHeader, reader);
 
-        if (descriptors == null) descriptors = new DelayImportDescriptor[0];
-	}
+		if (descriptors == null)
+			descriptors = new DelayImportDescriptor[0];
+    }
 
 	/**
 	 * Returns the array of delay import descriptors defined in this delay import data directory.
@@ -82,7 +70,7 @@ public class DelayImportDataDirectory extends DataDirectory {
 
         List<DelayImportDescriptor> list = new ArrayList<DelayImportDescriptor>();
         while (true) {
-            DelayImportDescriptor did = DelayImportDescriptor.createDelayImportDescriptor(ntHeader, reader, ptr);
+			DelayImportDescriptor did = new DelayImportDescriptor(ntHeader, reader, ptr);
 
             if (!did.isValid() || did.getPointerToDLLName() == 0) break;
 
@@ -98,11 +86,11 @@ public class DelayImportDataDirectory extends DataDirectory {
 
     @Override
 	public void markup(Program program, boolean isBinary, TaskMonitor monitor, MessageLog log,
-			NTHeader ntHeader) throws DuplicateNameException, CodeUnitInsertionException,
-			DataTypeConflictException, IOException {
+			NTHeader nt)
+			throws DuplicateNameException, CodeUnitInsertionException, IOException {
 
     	monitor.setMessage(program.getName()+": delay import(s)...");
-		Address addr = PeUtils.getMarkupAddress(program, isBinary, ntHeader, virtualAddress);
+		Address addr = PeUtils.getMarkupAddress(program, isBinary, nt, virtualAddress);
 		if (!program.getMemory().contains(addr)) {
 			return;
 		}
@@ -174,7 +162,9 @@ public class DelayImportDataDirectory extends DataDirectory {
 		try {
 			program.getSymbolTable().createLabel(addr, name, SourceType.IMPORTED);
 		}
-		catch (Exception e) {}
+		catch (Exception e) {
+			// do nothing
+		}
 	}
 
     private Address addr(AddressSpace space, boolean isBinary, 
@@ -199,7 +189,7 @@ public class DelayImportDataDirectory extends DataDirectory {
 									DelayImportDescriptor descriptor, 
 									TaskMonitor monitor,
 									MessageLog log)
-			throws DataTypeConflictException, DuplicateNameException {
+			throws DuplicateNameException {
 
 		Map<ThunkData, ImportByName> map = descriptor.getImportByNameMap();
 		Iterator<ThunkData> thunks = map.keySet().iterator();
@@ -240,13 +230,13 @@ public class DelayImportDataDirectory extends DataDirectory {
 			}
 			DataType dt;
 			if (thunk.isOrdinal() || thunk.getAddressOfData() == 0) {
-				dt = is64bit ? QWORD : DWORD;
+				dt = is64bit ? QWordDataType.dataType : DWordDataType.dataType;
 			}
 			else if (isIAT) {
 				dt = is64bit ? Pointer64DataType.dataType : Pointer32DataType.dataType;
 			}
 			else {
-				dt = is64bit ? IBO64 : IBO32;
+				dt = is64bit ? IBO64DataType.dataType : IBO32DataType.dataType;
 			}
 
 			Address thunkAddress = space.getAddress(thunkPtr);
@@ -255,17 +245,4 @@ public class DelayImportDataDirectory extends DataDirectory {
 			thunkPtr += thunk.getStructSize();
 		}
 	}
-
-    /**
-     * @see ghidra.app.util.bin.StructConverter#toDataType()
-     */
-    @Override
-    public DataType toDataType() throws DuplicateNameException, IOException {
-        StructureDataType struct = new StructureDataType(NAME, 0);
-        for (DelayImportDescriptor descriptor : descriptors) {
-			struct.add(descriptor.toDataType(), DelayImportDescriptor.NAME, null);
-		}
-        struct.setCategoryPath(new CategoryPath("/PE"));
-        return struct;
-    }
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,11 +22,12 @@ import java.util.Collection;
 import java.util.Map.Entry;
 import java.util.function.Predicate;
 
-import com.google.common.collect.Range;
-
 import ghidra.program.model.address.*;
+import ghidra.program.model.lang.Register;
+import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.trace.model.*;
+import ghidra.trace.model.guest.TracePlatform;
 import ghidra.trace.model.time.TraceSnapshot;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
@@ -62,6 +63,38 @@ import ghidra.util.task.TaskMonitor;
  */
 public interface TraceMemoryOperations {
 	/**
+	 * Check if the return value of {@link #getStates(long, AddressRange)} or similar represents a
+	 * single entry of the given state.
+	 * 
+	 * <p>
+	 * This method returns false if there is not exactly one entry of the given state whose range
+	 * covers the given range. As a special case, an empty collection will cause this method to
+	 * return true iff state is {@link TraceMemoryState#UNKNOWN}.
+	 * 
+	 * @param range the range to check, usually that passed to
+	 *            {@link #getStates(long, AddressRange)}.
+	 * @param stateEntries the collection returned by {@link #getStates(long, AddressRange)}.
+	 * @param state the expected state
+	 * @return true if the state matches
+	 */
+	static boolean isStateEntirely(AddressRange range,
+			Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> stateEntries,
+			TraceMemoryState state) {
+		if (stateEntries.isEmpty()) {
+			return state == TraceMemoryState.UNKNOWN;
+		}
+		if (stateEntries.size() != 1) {
+			return false;
+		}
+		Entry<TraceAddressSnapRange, TraceMemoryState> ent = stateEntries.iterator().next();
+		if (ent.getValue() != state) {
+			return false;
+		}
+		AddressRange entRange = ent.getKey().getRange();
+		return entRange.contains(range.getMinAddress()) && entRange.contains(range.getMaxAddress());
+	}
+
+	/**
 	 * Get the trace to which the memory manager belongs
 	 * 
 	 * @return the trace
@@ -91,14 +124,14 @@ public interface TraceMemoryOperations {
 	 * @throws DuplicateNameException if the specified region has a name which duplicates another at
 	 *             any intersecting snap
 	 */
-	TraceMemoryRegion addRegion(String path, Range<Long> lifespan, AddressRange range,
+	TraceMemoryRegion addRegion(String path, Lifespan lifespan, AddressRange range,
 			Collection<TraceMemoryFlag> flags)
 			throws TraceOverlappedRegionException, DuplicateNameException;
 
 	/**
-	 * @see #addRegion(String, Range, AddressRange, Collection)
+	 * @see #addRegion(String, Lifespan, AddressRange, Collection)
 	 */
-	default TraceMemoryRegion addRegion(String path, Range<Long> lifespan,
+	default TraceMemoryRegion addRegion(String path, Lifespan lifespan,
 			AddressRange range, TraceMemoryFlag... flags)
 			throws TraceOverlappedRegionException, DuplicateNameException {
 		return addRegion(path, lifespan, range, Arrays.asList(flags));
@@ -107,12 +140,12 @@ public interface TraceMemoryOperations {
 	/**
 	 * Add a region created at the given snap, with no specified destruction snap
 	 * 
-	 * @see #addRegion(String, Range, AddressRange, Collection)
+	 * @see #addRegion(String, Lifespan, AddressRange, Collection)
 	 */
 	default TraceMemoryRegion createRegion(String path, long snap, AddressRange range,
 			Collection<TraceMemoryFlag> flags)
 			throws TraceOverlappedRegionException, DuplicateNameException {
-		return addRegion(path, Range.atLeast(snap), range, flags);
+		return addRegion(path, Lifespan.nowOn(snap), range, flags);
 	}
 
 	/**
@@ -121,7 +154,7 @@ public interface TraceMemoryOperations {
 	default TraceMemoryRegion createRegion(String path, long snap, AddressRange range,
 			TraceMemoryFlag... flags)
 			throws TraceOverlappedRegionException, DuplicateNameException {
-		return addRegion(path, Range.atLeast(snap), range, flags);
+		return addRegion(path, Lifespan.nowOn(snap), range, flags);
 	}
 
 	/**
@@ -156,7 +189,7 @@ public interface TraceMemoryOperations {
 	 * @param range the range
 	 * @return the collection of matching regions
 	 */
-	Collection<? extends TraceMemoryRegion> getRegionsIntersecting(Range<Long> lifespan,
+	Collection<? extends TraceMemoryRegion> getRegionsIntersecting(Lifespan lifespan,
 			AddressRange range);
 
 	/**
@@ -260,12 +293,38 @@ public interface TraceMemoryOperations {
 	 * Get the entry recording the most recent state at the given snap and address, following
 	 * schedule forks
 	 * 
-	 * @param snap the time
-	 * @param address the location
-	 * @return the state
+	 * @param snap the latest time to consider
+	 * @param address the address
+	 * @return the most-recent entry
 	 */
 	Entry<TraceAddressSnapRange, TraceMemoryState> getViewMostRecentStateEntry(long snap,
 			Address address);
+
+	/**
+	 * Get the entry recording the most recent state since the given snap within the given range
+	 * that satisfies a given predicate, following schedule forks
+	 * 
+	 * @param snap the latest time to consider
+	 * @param range the range of addresses
+	 * @param predicate a predicate on the state
+	 * @return the most-recent entry
+	 */
+	Entry<TraceAddressSnapRange, TraceMemoryState> getViewMostRecentStateEntry(long snap,
+			AddressRange range, Predicate<TraceMemoryState> predicate);
+
+	/**
+	 * Get at least the subset of addresses having state satisfying the given predicate
+	 * 
+	 * @param snap the time
+	 * @param set the set to examine
+	 * @param predicate a predicate on state to search for
+	 * @return the address set
+	 * @see #getAddressesWithState(Lifespan, AddressSetView, Predicate)
+	 */
+	default AddressSetView getAddressesWithState(long snap, AddressSetView set,
+			Predicate<TraceMemoryState> predicate) {
+		return getAddressesWithState(Lifespan.at(snap), set, predicate);
+	}
 
 	/**
 	 * Get at least the subset of addresses having state satisfying the given predicate
@@ -287,7 +346,7 @@ public interface TraceMemoryOperations {
 	 * @param predicate a predicate on state to search for
 	 * @return the address set
 	 */
-	AddressSetView getAddressesWithState(long snap, AddressSetView set,
+	AddressSetView getAddressesWithState(Lifespan span, AddressSetView set,
 			Predicate<TraceMemoryState> predicate);
 
 	/**
@@ -315,7 +374,7 @@ public interface TraceMemoryOperations {
 	 * @param predicate a predicate on state to search for
 	 * @return the address set
 	 */
-	AddressSetView getAddressesWithState(Range<Long> lifespan,
+	AddressSetView getAddressesWithState(Lifespan lifespan,
 			Predicate<TraceMemoryState> predicate);
 
 	/**
@@ -331,6 +390,29 @@ public interface TraceMemoryOperations {
 	 */
 	Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> getStates(long snap,
 			AddressRange range);
+
+	/**
+	 * Check if a range addresses are all known
+	 * 
+	 * @param snap the time
+	 * @param range the range to examine
+	 * @return true if the entire range is {@link TraceMemoryState#KNOWN}
+	 */
+	default boolean isKnown(long snap, AddressRange range) {
+		Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> states = getStates(snap, range);
+		if (states.isEmpty()) {
+			return false;
+		}
+		if (states.size() != 1) {
+			return false;
+		}
+		AddressRange entryRange = states.iterator().next().getKey().getRange();
+		if (!entryRange.contains(range.getMinAddress()) ||
+			!entryRange.contains(range.getMaxAddress())) {
+			return false;
+		}
+		return true;
+	}
 
 	/**
 	 * Break a range of addresses into smaller ranges each mapped to its most recent state at the
@@ -412,9 +494,6 @@ public interface TraceMemoryOperations {
 	/**
 	 * Search the given address range at the given snap for a given byte pattern
 	 * 
-	 * <p>
-	 * TODO: Implement me
-	 * 
 	 * @param snap the time to search
 	 * @param range the address range to search
 	 * @param data the values to search for
@@ -422,7 +501,7 @@ public interface TraceMemoryOperations {
 	 * @param forward true to return the match with the lowest address in {@code range}, false for
 	 *            the highest address.
 	 * @param monitor a monitor for progress reporting and canceling
-	 * @return the address of the match, or {@code null} if not found
+	 * @return the minimum address of the matched bytes, or {@code null} if not found
 	 */
 	Address findBytes(long snap, AddressRange range, ByteBuffer data, ByteBuffer mask,
 			boolean forward, TaskMonitor monitor);
@@ -508,4 +587,260 @@ public interface TraceMemoryOperations {
 	 * recommended whenever the trace is saved to disk.
 	 */
 	void pack();
+
+	/**
+	 * Set the state of a given register at a given time
+	 * 
+	 * <p>
+	 * Setting state to {@link TraceMemoryState#KNOWN} via this method is not recommended. Setting
+	 * bytes will automatically update the state accordingly.
+	 * 
+	 * @param platform the platform whose language defines the register
+	 * @param snap the time
+	 * @param register the register
+	 * @param state the state
+	 */
+	void setState(TracePlatform platform, long snap, Register register, TraceMemoryState state);
+
+	/**
+	 * Set the state of a given register at a given time
+	 * 
+	 * <p>
+	 * Setting state to {@link TraceMemoryState#KNOWN} via this method is not recommended. Setting
+	 * bytes will automatically update the state accordingly.
+	 * 
+	 * @param snap the time
+	 * @param register the register
+	 * @param state the state
+	 */
+	default void setState(long snap, Register register, TraceMemoryState state) {
+		setState(getTrace().getPlatformManager().getHostPlatform(), snap, register, state);
+	}
+
+	/**
+	 * Assert that a register's range has a single state at the given snap and get that state
+	 * 
+	 * @param platform the platform whose language defines the register
+	 * @param snap the time
+	 * @param register the register to examine
+	 * @return the state
+	 * @throws IllegalStateException if the register is mapped to more than one state. See
+	 *             {@link #getStates(long, Register)}
+	 */
+	TraceMemoryState getState(TracePlatform platform, long snap, Register register);
+
+	/**
+	 * Assert that a register's range has a single state at the given snap and get that state
+	 * 
+	 * @param snap the time
+	 * @param register the register to examine
+	 * @return the state
+	 * @throws IllegalStateException if the register is mapped to more than one state. See
+	 *             {@link #getStates(long, Register)}
+	 */
+	default TraceMemoryState getState(long snap, Register register) {
+		return getState(getTrace().getPlatformManager().getHostPlatform(), snap, register);
+	}
+
+	/**
+	 * Break the register's range into smaller ranges each mapped to its state at the given snap
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param platform the platform whose language defines the register
+	 * @param snap the time
+	 * @param register the register to examine
+	 * @return the map of ranges to states
+	 */
+	Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> getStates(TracePlatform platform,
+			long snap, Register register);
+
+	/**
+	 * Break the register's range into smaller ranges each mapped to its state at the given snap
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param snap the time
+	 * @param register the register to examine
+	 * @return the map of ranges to states
+	 */
+	default Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> getStates(long snap,
+			Register register) {
+		return getStates(getTrace().getPlatformManager().getHostPlatform(), snap, register);
+	}
+
+	/**
+	 * @see #setValue(long, RegisterValue)
+	 * @param platform the platform whose language defines the register
+	 * @param snap the snap
+	 * @param value the register value
+	 * @return the number of bytes written
+	 */
+	int setValue(TracePlatform platform, long snap, RegisterValue value);
+
+	/**
+	 * Set the value of a register at the given snap
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space. In those
+	 * cases, the assignment affects all threads.
+	 * 
+	 * <p>
+	 * <b>IMPORTANT:</b> The trace database cannot track the state ({@link TraceMemoryState#KNOWN},
+	 * etc.) with per-bit accuracy. It only has byte precision. If the given value specifies, e.g.,
+	 * only a single bit, then the entire byte will become marked {@link TraceMemoryState#KNOWN},
+	 * even though the remaining 7 bits could technically be unknown.
+	 * 
+	 * @param snap the snap
+	 * @param value the register value
+	 * @return the number of bytes written
+	 */
+	default int setValue(long snap, RegisterValue value) {
+		return setValue(getTrace().getPlatformManager().getHostPlatform(), snap, value);
+	}
+
+	/**
+	 * @see #putBytes(long, Register, ByteBuffer)
+	 * @param platform the platform whose language defines the register
+	 * @param snap the snap
+	 * @param register the register to modify
+	 * @param buf the buffer of bytes to write
+	 * @return the number of bytes written
+	 */
+	int putBytes(TracePlatform platform, long snap, Register register, ByteBuffer buf);
+
+	/**
+	 * Write bytes at the given snap and register address
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space. In those
+	 * cases, the assignment affects all threads.
+	 * 
+	 * <p>
+	 * Note that bit-masked registers are not properly heeded. If the caller wishes to preserve
+	 * non-masked bits, it must first retrieve the current value and combine it with the desired
+	 * value. The caller must also account for any bit shift in the passed buffer. Alternatively,
+	 * consider {@link #setValue(long, RegisterValue)}.
+	 * 
+	 * @param snap the snap
+	 * @param register the register to modify
+	 * @param buf the buffer of bytes to write
+	 * @return the number of bytes written
+	 */
+	default int putBytes(long snap, Register register, ByteBuffer buf) {
+		return putBytes(getTrace().getPlatformManager().getHostPlatform(), snap, register, buf);
+	}
+
+	/**
+	 * Get the most-recent value of a given register at the given time
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param platform the platform whose language defines the register
+	 * @param snap the time
+	 * @param register the register
+	 * @return the value
+	 */
+	RegisterValue getValue(TracePlatform platform, long snap, Register register);
+
+	/**
+	 * Get the most-recent value of a given register at the given time
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param snap the time
+	 * @param register the register
+	 * @return the value
+	 */
+	default RegisterValue getValue(long snap, Register register) {
+		return getValue(getTrace().getPlatformManager().getHostPlatform(), snap, register);
+	}
+
+	/**
+	 * Get the most-recent value of a given register at the given time
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param platform the platform whose language defines the register
+	 * @param snap the time
+	 * @param register the register
+	 * @return the value
+	 */
+	RegisterValue getViewValue(TracePlatform platform, long snap, Register register);
+
+	/**
+	 * Get the most-recent value of a given register at the given time, following schedule forks
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param snap the time
+	 * @param register the register
+	 * @return the value
+	 */
+	default RegisterValue getViewValue(long snap, Register register) {
+		return getViewValue(getTrace().getPlatformManager().getHostPlatform(), snap, register);
+	}
+
+	/**
+	 * Get the most-recent bytes of a given register at the given time
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param platform the platform whose language defines the register
+	 * @param snap the time
+	 * @param register the register
+	 * @param buf the destination buffer
+	 * @return the number of bytes read
+	 */
+	int getBytes(TracePlatform platform, long snap, Register register, ByteBuffer buf);
+
+	/**
+	 * Get the most-recent bytes of a given register at the given time
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * @param snap the time
+	 * @param register the register
+	 * @param buf the destination buffer
+	 * @return the number of bytes read
+	 */
+	default int getBytes(long snap, Register register, ByteBuffer buf) {
+		return getBytes(getTrace().getPlatformManager().getHostPlatform(), snap, register, buf);
+	}
+
+	/**
+	 * @see #removeValue(long, Register)
+	 * @param platform the platform whose language defines the register
+	 * @param snap the snap
+	 * @param register the register
+	 */
+	void removeValue(TracePlatform platform, long snap, Register register);
+
+	/**
+	 * Remove a value from the given time and register
+	 * 
+	 * <p>
+	 * If the register is memory mapped, this will delegate to the appropriate space.
+	 * 
+	 * <p>
+	 * <b>IMPORANT:</b> The trace database cannot track the state ({@link TraceMemoryState#KNOWN},
+	 * etc.) with per-bit accuracy. It only has byte precision. If the given register specifies,
+	 * e.g., only a single bit, then the entire byte will become marked
+	 * {@link TraceMemoryState#UNKNOWN}, even though the remaining 7 bits could technically be
+	 * known.
+	 * 
+	 * @param snap the snap
+	 * @param register the register
+	 */
+	default void removeValue(long snap, Register register) {
+		removeValue(getTrace().getPlatformManager().getHostPlatform(), snap, register);
+	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,6 +27,7 @@ import docking.DockingWindowManager;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.label.GHtmlLabel;
 import docking.widgets.label.GLabel;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import ghidra.util.HelpLocation;
 import ghidra.util.table.GhidraTable;
 import pdb.PdbPlugin;
@@ -38,8 +39,9 @@ import pdb.symbolserver.FindOption;
  */
 class SymbolFilePanel extends JPanel {
 	interface SearchCallback {
-		void searchForPdbs(boolean allowRemote);
+		void searchForPdbs(boolean allowUntrusted);
 	}
+
 	static final String SEARCH_OPTIONS_HELP_ANCHOR = "PDB_Search_Search_Options";
 	private SymbolFileTableModel tableModel;
 	private GhidraTable table;
@@ -98,8 +100,7 @@ class SymbolFilePanel extends JPanel {
 	}
 
 	SymbolFileRow getSelectedRow() {
-		return table.getSelectedRow() != -1
-				? tableModel.getRowObject(table.getSelectedRow())
+		return table.getSelectedRow() != -1 ? tableModel.getRowObject(table.getSelectedRow())
 				: null;
 	}
 
@@ -116,8 +117,8 @@ class SymbolFilePanel extends JPanel {
 
 	private JPanel buildWelcomePanel() {
 		welcomePanel = new JPanel();
-		welcomePanel.add(new GHtmlLabel(
-			"<html><br><center><font color=red>Configuration must be set first!"));
+		welcomePanel.add(new GHtmlLabel("<html><br><center><font color=\"" +
+			Messages.ERROR.toHexString() + "\">Configuration must be set first!"));
 		welcomePanel.setPreferredSize(tablePanel.getPreferredSize());
 
 		return welcomePanel;
@@ -135,7 +136,7 @@ class SymbolFilePanel extends JPanel {
 		isMatchColumn.setMaxWidth(32);
 		isMatchColumn.setMinWidth(32);
 
-		// a few extra rows than needed since the table component 
+		// a few extra rows than needed since the table component
 		// will be resized according to the number of warning text
 		// lines at the bottom of the dialog
 		table.setVisibleRowCount(8);
@@ -148,10 +149,10 @@ class SymbolFilePanel extends JPanel {
 	}
 
 	private JPanel buildButtonPanel() {
-		searchLocalButton = new JButton("Search Local");
-		searchLocalButton.setToolTipText("Search local symbol servers only.");
+		searchLocalButton = new JButton("Search");
+		searchLocalButton.setToolTipText("Search trusted symbol servers only.");
 		searchAllButton = new JButton("Search All");
-		searchAllButton.setToolTipText("Search local and remote symbol servers.");
+		searchAllButton.setToolTipText("Search trusted and untrusted symbol servers.");
 
 		ignorePdbUid = new GCheckBox("Ignore GUID/ID");
 		ignorePdbUid.setToolTipText(

@@ -27,9 +27,10 @@ public class MutabilitySettingsDefinition implements EnumSettingsDefinition {
 	public static final int NORMAL = 0;
 	public static final int VOLATILE = 1;
 	public static final int CONSTANT = 2;
+	public static final int WRITABLE = 3;
 
 	//NOTE: if these strings change, the XML needs to changed also...
-	private static final String[] choices = { "normal", "volatile", "constant" };
+	private static final String[] choices = { "normal", "volatile", "constant", "writable" };
 	public static final String MUTABILITY = "mutability";
 
 	public static final MutabilitySettingsDefinition DEF = new MutabilitySettingsDefinition();
@@ -51,7 +52,7 @@ public class MutabilitySettingsDefinition implements EnumSettingsDefinition {
 			return NORMAL;
 		}
 		int mode = (int) value.longValue();
-		if ((mode < 0) || (mode > CONSTANT)) {
+		if ((mode < 0) || (mode > WRITABLE)) {
 			mode = NORMAL;
 		}
 		return mode;
@@ -63,8 +64,13 @@ public class MutabilitySettingsDefinition implements EnumSettingsDefinition {
 	}
 
 	@Override
+	public String getValueString(Settings settings) {
+		return choices[getChoice(settings)];
+	}
+
+	@Override
 	public void setChoice(Settings settings, int value) {
-		if (value < 0 || value > CONSTANT) {
+		if (value < 0 || value > WRITABLE) {
 			settings.clearSetting(MUTABILITY);
 		}
 		else {
@@ -80,6 +86,11 @@ public class MutabilitySettingsDefinition implements EnumSettingsDefinition {
 	@Override
 	public String getName() {
 		return "Mutability";
+	}
+
+	@Override
+	public String getStorageKey() {
+		return MUTABILITY;
 	}
 
 	@Override

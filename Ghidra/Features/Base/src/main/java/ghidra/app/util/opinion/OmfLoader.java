@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,35 +17,41 @@ package ghidra.app.util.opinion;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import ghidra.app.util.MemoryBlockUtils;
 import ghidra.app.util.Option;
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.format.omf.*;
-import ghidra.app.util.bin.format.omf.OmfFixupRecord.Subrecord;
+import ghidra.app.util.bin.format.omf.omf.*;
+import ghidra.app.util.bin.format.omf.omf.OmfFixupRecord.Subrecord;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressOverflowException;
+import ghidra.program.database.function.OverlappingFunctionException;
+import ghidra.program.database.mem.FileBytes;
+import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
+import ghidra.program.model.reloc.Relocation.Status;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.util.DataConverter;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
-public class OmfLoader extends AbstractLibrarySupportLoader {
+/**
+ * A {@link Loader} for Relocatable Object Module (OMF) files
+ */
+public class OmfLoader extends AbstractProgramWrapperLoader {
 	public final static String OMF_NAME = "Relocatable Object Module Format (OMF)";
 	public final static long MIN_BYTE_LENGTH = 11;
 	public final static long IMAGE_BASE = 0x2000; // Base offset to start loading segments
 	public final static long MAX_UNINITIALIZED_FILL = 0x2000;	// Maximum zero bytes added to pad initialized segments
 
-	private ArrayList<OmfSymbol> externsyms = null;
+	private List<OmfSymbol> externsyms = new ArrayList<>();
 
 	/**
 	 * OMF usually stores a string describing the compiler that produced it in a
@@ -56,19 +62,15 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 	 * @return the "secondary constraint"
 	 */
 	private String mapTranslator(String record) {
-		if (record == null) {
-			return null;
-		}
-		if (record.startsWith("Borland")) {
-			return "borlandcpp";
-		}
-		if (record.startsWith("Delphi")) {
-			return "borlanddelphi";
-		}
-		if (record.startsWith("CodeGear")) {
-			return "codegearcpp";
-		}
-		return null;
+		return switch (record) {
+			case String s when s.startsWith("Borland") -> "boarlandcpp";
+			case String s when s.startsWith("Delphi") -> "borlanddelphi";
+			case String s when s.startsWith("CodeGear") -> "codegearcpp";
+			case String s when s.equals("MS C") -> "windows";
+			case String s when s.startsWith("Watcom") -> "watcom";
+			case null -> null;
+			default -> null;
+		};
 	}
 
 	@Override
@@ -79,12 +81,12 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 			return loadSpecs;
 		}
 
-		BinaryReader reader = OmfFileHeader.createReader(provider);
-		if (OmfFileHeader.checkMagicNumber(reader)) {
-			reader.setPointerIndex(0);
+		AbstractOmfRecordFactory factory = new OmfRecordFactory(provider);
+		if (OmfFileHeader.checkMagicNumber(factory.getReader())) {
+			factory.reset();
 			OmfFileHeader scan;
 			try {
-				scan = OmfFileHeader.scan(reader, TaskMonitorAdapter.DUMMY_MONITOR, true);
+				scan = OmfFileHeader.scan(factory, TaskMonitor.DUMMY, true);
 			}
 			catch (OmfException e) {
 				throw new IOException("Bad header format: " + e.getMessage());
@@ -112,16 +114,16 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 			throws IOException, CancelledException {
 
 		OmfFileHeader header = null;
-		BinaryReader reader = OmfFileHeader.createReader(provider);
+		AbstractOmfRecordFactory factory = new OmfRecordFactory(provider);
 		try {
-			header = OmfFileHeader.parse(reader, monitor);
+			header = OmfFileHeader.parse(factory, monitor, log);
 			header.resolveNames();
 			header.sortSegmentDataBlocks();
 			OmfFileHeader.doLinking(IMAGE_BASE, header.getSegments(), header.getGroups());
 		}
-		catch (OmfException ex) {
+		catch (OmfException e) {
 			if (header == null) {
-				throw new IOException("OMF File header was corrupted");
+				throw new IOException("OMF File header was corrupted. " + e.getMessage());
 			}
 			log.appendMsg("File was corrupted - leaving partial program " + provider.getName());
 		}
@@ -129,22 +131,39 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 		// We don't use the file bytes to create block because the bytes are manipulated before
 		// forming the block.  Creating the FileBytes anyway in case later we want access to all
 		// the original bytes.
-		MemoryBlockUtils.createFileBytes(program, provider, monitor);
+		FileBytes fileBytes = MemoryBlockUtils.createFileBytes(program, provider, monitor);
 
-		int id = program.startTransaction("loading program from OMF");
-		boolean success = false;
 		try {
-			processSegmentHeaders(reader, header, program, monitor, log);
-			processExternalSymbols(header, program, monitor, log);
+			processSegmentHeaders(factory.getReader(), header, program, monitor, log);
 			processPublicSymbols(header, program, monitor, log);
+			processExternalSymbols(header, program, monitor, log);
 			processRelocations(header, program, monitor, log);
-			success = true;
+			markupRecords(program, fileBytes, header, log, monitor);
 		}
 		catch (AddressOverflowException e) {
 			throw new IOException(e);
 		}
-		finally {
-			program.endTransaction(id, success);
+	}
+
+	private void markupRecords(Program program, FileBytes fileBytes, OmfFileHeader fileHeader,
+			MessageLog log, TaskMonitor monitor) {
+		monitor.setMessage("Marking up records...");
+		int size =
+			fileHeader.getRecords().stream().mapToInt(r -> r.getRecordLength() + 3).sum();
+		try {
+			Address recordSpaceAddr = AddressSpace.OTHER_SPACE.getAddress(0);
+			MemoryBlock headerBlock = MemoryBlockUtils.createInitializedBlock(program, true,
+				"RECORDS", recordSpaceAddr, fileBytes, 0, size, "", "", false,
+				false, false, log);
+			Address start = headerBlock.getStart();
+
+			for (OmfRecord record : fileHeader.getRecords()) {
+				DataUtilities.createData(program, start.add(record.getRecordOffset()),
+					record.toDataType(), -1, DataUtilities.ClearDataMode.CHECK_FOR_SPACE);
+			}
+		}
+		catch (Exception e) {
+			log.appendMsg("Failed to markup records");
 		}
 	}
 
@@ -152,15 +171,15 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 	 * Log a (hopefully) descriptive error, if we can't process a specific relocation
 	 * @param program is the Program
 	 * @param log will receive the error message
-	 * @param state is the relocation record that could not be processed
+	 * @param type the relocation type
 	 */
-	private void relocationError(Program program, MessageLog log, OmfFixupRecord.FixupState state) {
+	private void relocationError(Program program, MessageLog log, Address addr, int type) {
 		String message;
-		if (state.locAddress != null) {
-			message = "Unable to process relocation at " + state.locAddress + " with type 0x" +
-				Integer.toHexString(state.locationType);
-			program.getBookmarkManager().setBookmark(state.locAddress, BookmarkType.ERROR,
-				"Relocations", message);
+		if (addr != null) {
+			message = "Unable to process relocation at " + addr + " with type 0x" +
+				Integer.toHexString(type);
+			program.getBookmarkManager()
+					.setBookmark(addr, BookmarkType.ERROR, "Relocations", message);
 		}
 		else {
 			message = "Badly broken relocation";
@@ -177,99 +196,167 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 	 */
 	private void processRelocations(OmfFileHeader header, Program program, TaskMonitor monitor,
 			MessageLog log) {
-		ArrayList<OmfFixupRecord> fixups = header.getFixups();
-		OmfFixupRecord.FixupState state =
-			new OmfFixupRecord.FixupState(header, externsyms, program.getLanguage());
+		Language language = program.getLanguage();
+		OmfFixupRecord.Subrecord[] targetThreads = new Subrecord[4];
+		List<OmfGroupRecord> groups = header.getGroups();
+		long targetAddr;		// Address of item being referred to
+		Address locAddress;		// Location of data to be patched
 		DataConverter converter = DataConverter.getInstance(!header.isLittleEndian());
 
-		for (OmfFixupRecord fixup : fixups) {
-			state.currentFixupRecord = fixup;
-			Subrecord[] subrecs = fixup.getSubrecords();
-			Memory memory = program.getMemory();
-			for (Subrecord subrec : subrecs) {
+		monitor.setMessage("Process relocations...");
+		Memory memory = program.getMemory();
+		for (OmfFixupRecord fixup : header.getFixups()) {
+			for (Subrecord subrec : fixup.getSubrecords()) {
 				if (monitor.isCancelled()) {
 					break;
 				}
-
-				if (subrec.isThread()) {
-					((OmfFixupRecord.ThreadSubrecord) subrec).updateState(state);
+				if (subrec.isThreadSubrecord()) {
+					if (!subrec.isFrameInSubThread()) {
+						targetThreads[subrec.getThreadNum()] = subrec;
+					}
 				}
 				else {
 					long finalvalue = -1;
 					byte[] origbytes = null;
+					int method, index, locationType = -1;
+					locAddress = null;
 
+					if (fixup.getDataBlock() == null) {
+						continue;	// If no data block don't try to fixup
+					}
 					try {
-						OmfFixupRecord.FixupSubrecord fixsub =
-							(OmfFixupRecord.FixupSubrecord) subrec;
-						state.clear();
-						fixsub.resolveFixup(state);
-						if (state.targetState == -1 || state.locAddress == null) {
-							relocationError(program, log, state);
+						if (subrec.isTargetThread()) {
+							Subrecord rec = targetThreads[subrec.getFixThreadNum()];
+							method = subrec.getFixMethodWithSub(rec);
+							index = rec.getIndex();
+						}
+						else {
+							method = subrec.getFixMethod();
+							index = subrec.getTargetDatum();
+						}
+						switch (method) {
+							case 0:			// Index is for a segment
+							case 4:			// segment only, no displacement
+								targetAddr = header.resolveSegment(index).getStartAddress();
+								break;
+							case 1:			// Index is for a group
+							case 5:			// group only, no displacement
+								targetAddr = groups.get(index - 1).getStartAddress();
+								break;
+							case 2:			// Index is for an external symbol
+							case 6:			// external only, no displacement
+								OmfSymbol symbol = externsyms.get(index - 1);
+								if (symbol.isFloatingPointSpecial()) {
+									continue;
+								}
+								targetAddr = symbol.getAddress().getOffset();
+								break;
+							case 3:			// Not supported by many linkers
+							default:
+								log.appendMsg(
+									"Unsupported target method " + Integer.toString(method));
+								continue;
+						}
+						if (method < 3)
+							targetAddr += subrec.getTargetDisplacement();
+						locationType = subrec.getLocationType();
+						OmfSegmentHeader seg =
+							header.resolveSegment(fixup.getDataBlock().getSegmentIndex());
+						locAddress = seg.getAddress(language)
+								.add(fixup.getDataBlock().getDataOffset() +
+									subrec.getDataRecordOffset());
+						if (locAddress == null) {
+							log.appendMsg("Couldn't find address for fixup");
 							continue;
 						}
-
-						switch (state.locationType) {
+						finalvalue = targetAddr;
+						switch (locationType) {
 							case 0: // Low-order byte
 								origbytes = new byte[1];
-								memory.getBytes(state.locAddress, origbytes);
-								finalvalue = state.targetState;
-								if (state.M) {
+								memory.getBytes(locAddress, origbytes);
+								if (subrec.isSegmentRelative()) {
 									finalvalue += origbytes[0];
 								}
 								else {
-									finalvalue -= (state.locAddress.getOffset() + 1);
+									finalvalue -= (locAddress.getOffset() + 1);
 								}
-								memory.setByte(state.locAddress, (byte) finalvalue);
+								memory.setByte(locAddress, (byte) finalvalue);
 								break;
 							case 1: // 16-bit offset
 							case 5: // 16-bit loader-resolved offset (treated same as 1)
 								origbytes = new byte[2];
-								memory.getBytes(state.locAddress, origbytes);
-								finalvalue = state.targetState;
-								if (state.M) {
+								memory.getBytes(locAddress, origbytes);
+								if (subrec.isSegmentRelative()) {
 									finalvalue += converter.getShort(origbytes);
 								}
 								else {
-									finalvalue -= (state.locAddress.getOffset() + 2);
+									finalvalue -= (locAddress.getOffset() + 2);
 								}
-								memory.setShort(state.locAddress, (short) finalvalue);
+								memory.setShort(locAddress, (short) finalvalue);
 								break;
-							// case 2: // 16-bit base -- logical segment base (selector)
-							// case 3: // 32-bit Long pointer (16-bit base:16-bit offset
+							case 2: // 16-bit base -- logical segment base (selector)
+								if (!subrec.isSegmentRelative()) {
+									// Segment can't be self relative
+									relocationError(program, log, locAddress, locationType);
+									continue;
+								}
+								origbytes = new byte[2];
+								memory.getBytes(locAddress, origbytes);
+								finalvalue += converter.getShort(origbytes) << 4;
+								finalvalue >>= 4; // Convert address to segment
+								memory.setShort(locAddress, (short) finalvalue);
+								break;
+							case 3: // 32-bit far pointer (16-bit segment:16-bit offset)
+								if (!subrec.isSegmentRelative()) {
+									// Far can't be self relative
+									relocationError(program, log, locAddress, locationType);
+									continue;
+								}
+								origbytes = new byte[4];
+								memory.getBytes(locAddress, origbytes);
+								finalvalue += converter.getInt(origbytes);
+								// Convert to segment:offset in 64K blocks 
+								finalvalue =
+									((finalvalue & 0xffff0000L) << 12) | (finalvalue & 0xffff);
+								memory.setInt(locAddress, (int) finalvalue);
+								break;
+							// case 11: // 48-bit far pointer (16-bit segment:32-bit offset)
 							case 4: // High-order byte (high byte of 16-bit offset)
 							case 9: // 32-bit offset
 							case 13: // 32-bit loader-resolved offset (treated same as 9)
 								origbytes = new byte[4];
-								memory.getBytes(state.locAddress, origbytes);
-								finalvalue = state.targetState;
-								if (state.M) {
+								memory.getBytes(locAddress, origbytes);
+								if (subrec.isSegmentRelative()) {
 									finalvalue += converter.getInt(origbytes);
 								}
 								else {
-									finalvalue -= (state.locAddress.getOffset() + 4);
+									finalvalue -= (locAddress.getOffset() + 4);
 								}
-								memory.setInt(state.locAddress, (int) finalvalue);
+								memory.setInt(locAddress, (int) finalvalue);
 								break;
-							// case 11: // 48-bit pointer (16-bit base:32-bit offset)
 							default:
 								log.appendMsg("Unsupported relocation type " +
-									Integer.toString(state.locationType) + " at 0x" +
-									Long.toHexString(state.locAddress.getOffset()));
+									Integer.toString(locationType) + " at 0x" +
+									Long.toHexString(locAddress.getOffset()));
 								break;
 						}
 					}
 					catch (MemoryAccessException e) {
-						relocationError(program, log, state);
+						relocationError(program, log, locAddress, locationType);
 						continue;
 					}
 					catch (OmfException e) {
-						relocationError(program, log, state);
+						relocationError(program, log, locAddress, locationType);
+						continue;
+					}
+					catch (IndexOutOfBoundsException e) {
+						relocationError(program, log, locAddress, locationType);
 						continue;
 					}
 					long[] values = new long[1];
 					values[0] = finalvalue;
-					program.getRelocationTable().add(state.locAddress, state.locationType, values,
-						origbytes, null);
+					program.getRelocationTable()
+							.add(locAddress, Status.APPLIED, locationType, values, origbytes, null);
 				}
 			}
 		}
@@ -283,7 +370,6 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 	 * @param reader is a reader for the underlying file
 	 * @param header is the OMF file header
 	 * @param program is the Program
-	 * @param mbu is the block creation utility
 	 * @param monitor is checked for cancellation
 	 * @param log receives error messages
 	 * @throws AddressOverflowException if the underlying data stream causes an address to wrap
@@ -295,50 +381,30 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 
 		final Language language = program.getLanguage();
 
-		ArrayList<OmfSegmentHeader> segments = header.getSegments();
-//		int sectionNumber = 0;
+		List<OmfSegmentHeader> segments = header.getSegments();
 		for (OmfSegmentHeader segment : segments) {
-//			++sectionNumber;
 			if (monitor.isCancelled()) {
 				break;
 			}
 
-			//		if (segment.hasIteratedData() && segment.hasEnumeratedData())
-			//			throw new IOException("OMF segment has both iterated and enumerated data blocks");
-			MemoryBlock block = null;
-
+			Address segmentAddr = segment.getAddress(language);
 			final long segmentSize = segment.getSegmentLength();
 
-			Address segmentAddr = segment.getAddress(language);
-
 			if (segmentSize == 0) {
-				// don't create a block...just log that we've seen the segment
-				block = program.getMemory().getBlock(segmentAddr);
-				log.appendMsg("Empty Segment: " + segment.getName());
+				continue;
 			}
-			else if (segment.hasNonZeroData()) {
-				block = MemoryBlockUtils.createInitializedBlock(program, false, segment.getName(),
-					segmentAddr, segment.getRawDataStream(reader, log), segmentSize,
-					"Address:0x" + Long.toHexString(segmentAddr.getOffset()) + " " + "Size:0x" +
-						Long.toHexString(segmentSize),
-					null/*source*/, segment.isReadable(), segment.isWritable(),
-					segment.isExecutable(), log, monitor);
-				if (block != null) {
-					log.appendMsg(
-						"Created Initialized Block: " + segment.getName() + " @ " + segmentAddr);
-				}
+
+			if (segment.hasNonZeroData()) {
+				MemoryBlockUtils.createInitializedBlock(program, false, segment.getName(),
+					segmentAddr, segment.getRawDataStream(reader, log), segmentSize, "", "",
+					segment.isReadable(), segment.isWritable(), segment.isExecutable(), log,
+					monitor);
+
 			}
 			else {
-				block = MemoryBlockUtils.createUninitializedBlock(program, false, segment.getName(),
-					segmentAddr, segmentSize,
-					"Address:0x" + Long.toHexString(segmentAddr.getOffset()) + " " + "Size:0x" +
-						Long.toHexString(segmentSize),
-					null/*source*/, segment.isReadable(), segment.isWritable(),
+				MemoryBlockUtils.createUninitializedBlock(program, false, segment.getName(),
+					segmentAddr, segmentSize, "", "", segment.isReadable(), segment.isWritable(),
 					segment.isExecutable(), log);
-				if (block != null) {
-					log.appendMsg(
-						"Created Uninitialized Block: " + segment.getName() + " @ " + segmentAddr);
-				}
 			}
 		}
 	}
@@ -383,9 +449,9 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 			MessageLog log) {
 		SymbolTable symbolTable = program.getSymbolTable();
 
-		ArrayList<OmfSymbolRecord> symbols = header.getPublicSymbols();
-		ArrayList<OmfSegmentHeader> segments = header.getSegments();
-		ArrayList<OmfGroupRecord> groups = header.getGroups();
+		List<OmfSymbolRecord> symbols = header.getPublicSymbols();
+		List<OmfSegmentHeader> segments = header.getSegments();
+		List<OmfGroupRecord> groups = header.getGroups();
 		Language language = program.getLanguage();
 
 		monitor.setMessage("Creating Public Symbols");
@@ -395,12 +461,14 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 				break;
 			}
 			Address addrBase = null;
+			boolean tagFunction = false;
 			if (symbolrec.getSegmentIndex() != 0) {
 				// TODO: What does it mean if both the segment and group index are non-zero?
 				//     Is the segment index group relative?
 				//     For now we assume if a segment index is present, we don't need the group index
 				OmfSegmentHeader baseSegment = segments.get(symbolrec.getSegmentIndex() - 1);
 				addrBase = baseSegment.getAddress(language);
+				tagFunction = baseSegment.isCode();
 			}
 			else if (symbolrec.getGroupIndex() != 0) {
 				OmfGroupRecord baseGroup = groups.get(symbolrec.getGroupIndex() - 1);
@@ -414,10 +482,32 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 			int numSymbols = symbolrec.numSymbols();
 			for (int i = 0; i < numSymbols; ++i) {
 				OmfSymbol symbol = symbolrec.getSymbol(i);
-				Address address = addrBase.add(symbol.getOffset());
-				symbol.setAddress(address);
+				try {
+					Address address = addrBase.add(symbol.getOffset());
+					symbol.setAddress(address);
 
-				createSymbol(symbol, address, symbolTable, log);
+					createSymbol(symbol, address, symbolTable, log);
+					if (tagFunction) {
+						// Create a dummy function so that EntryPointAnalyzer will disassemble it
+						try {
+							program.getFunctionManager()
+									.createFunction(symbol.getName(), address,
+										new AddressSet(address), SourceType.IMPORTED);
+						}
+						catch (OverlappingFunctionException e) {
+							log.appendMsg("Function already exists at address " + address + ": " +
+								e.getMessage());
+						}
+						catch (InvalidInputException e) {
+							log.appendMsg("Unable to create function with invalid name " +
+								symbol.getName() + ": " + e.getMessage());
+						}
+					}
+				}
+				catch (AddressOutOfBoundsException e) {
+					log.appendMsg(
+						"Unable to create symbol " + symbol.getName() + ": " + e.getMessage());
+				}
 			}
 		}
 	}
@@ -463,7 +553,7 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 	private void processExternalSymbols(OmfFileHeader header, Program program, TaskMonitor monitor,
 			MessageLog log) {
 
-		ArrayList<OmfExternalSymbol> symbolrecs = header.getExternalSymbols();
+		List<OmfExternalSymbol> symbolrecs = header.getExternalSymbols();
 		if (symbolrecs.size() == 0) {
 			return;
 		}
@@ -474,19 +564,28 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 			return;
 		}
 		Address externalAddressStart = externalAddress;
-		externsyms = new ArrayList<>();
-
 		SymbolTable symbolTable = program.getSymbolTable();
 		Language language = program.getLanguage();
+
+		Map<String, OmfSymbol> publicSymbols = header.getPublicSymbols()
+				.stream()
+				.flatMap(symbolRec -> symbolRec.getSymbols().stream())
+				.collect(
+					Collectors.toMap(sym -> sym.getName(), java.util.function.Function.identity()));
 
 		monitor.setMessage("Creating External Symbols");
 
 		for (OmfExternalSymbol symbolrec : symbolrecs) {
-			OmfSymbol[] symbols = symbolrec.getSymbols();
 			// TODO: Check instanceof OmfComdefRecord
-			for (OmfSymbol symbol : symbols) {
+			for (OmfSymbol symbol : symbolrec.getSymbols()) {
 				if (monitor.isCancelled()) {
 					break;
+				}
+				OmfSymbol public_symbol = publicSymbols.get(symbol.getName());
+				if (public_symbol != null) {
+					// Use existing public symbol
+					externsyms.add(public_symbol);
+					continue;
 				}
 				Address address = null;
 				if (symbol.getSegmentRef() != 0) { // Look for special Borland segment symbols
@@ -531,6 +630,9 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 				// assume any value in external is writable.
 				block.setWrite(true);
 
+				// Mark block as an artificial fabrication
+				block.setArtificial(true);
+
 				Address current = externalAddressStart;
 				while (current.compareTo(externalAddress) < 0) {
 					createUndefined(program.getListing(), program.getMemory(), current,
@@ -552,10 +654,9 @@ public class OmfLoader extends AbstractLibrarySupportLoader {
 	 * @param size is the number of bytes in the data
 	 * @return the new created Data object
 	 * @throws CodeUnitInsertionException if the new data conflicts with another object
-	 * @throws DataTypeConflictException if the data-type cannot be created
 	 */
 	private Data createUndefined(Listing listing, Memory memory, Address addr, int size)
-			throws CodeUnitInsertionException, DataTypeConflictException {
+			throws CodeUnitInsertionException {
 		MemoryBlock block = memory.getBlock(addr);
 		if (block == null || !block.isInitialized()) {
 			return null;

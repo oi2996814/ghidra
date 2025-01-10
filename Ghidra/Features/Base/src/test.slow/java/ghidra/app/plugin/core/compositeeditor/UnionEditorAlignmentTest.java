@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,7 +27,7 @@ import ghidra.program.model.data.*;
 public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 
 	@Test
-    public void testUnalignedUnion() {
+	public void testUnalignedUnion() {
 		init(emptyUnion, pgmRootCat, false);
 
 		assertTrue(unionModel.hasChanges());// empty union that hasn't been saved yet.
@@ -47,20 +47,18 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 		assertEquals(1, unionModel.getNumSelectedRows());
 		checkSelection(new int[] { 0 });
 
-//		// Check enablement.
-//		CompositeEditorAction[] pActions = provider.getActions();
-//		for (int i = 0; i < pActions.length; i++) {
-//			if ((pActions[i] instanceof FavoritesAction)
-//			|| (pActions[i] instanceof CycleGroupAction)
-//			|| (pActions[i] instanceof EditFieldAction)
-//			|| (pActions[i] instanceof PointerAction)
-//			|| (pActions[i] instanceof HexNumbersAction)) {
-//				checkEnablement(pActions[i], true);
-//			}
-//			else {
-//				checkEnablement(pActions[i], false);
-//			}
-//		}
+		// Check enablement for empty table with modified state.
+		CompositeEditorTableAction[] pActions = provider.getActions();
+		for (CompositeEditorTableAction pAction : pActions) {
+			if ((pAction instanceof FavoritesAction) || (pAction instanceof CycleGroupAction) ||
+				(pAction instanceof EditFieldAction) || (pAction instanceof PointerAction) ||
+				(pAction instanceof HexNumbersAction) || (pAction instanceof ApplyAction)) {
+				checkEnablement(pAction, true);
+			}
+			else {
+				checkEnablement(pAction, false);
+			}
+		}
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		addDataType(new ByteDataType());
@@ -77,7 +75,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testDefaultAlignedUnion() throws Exception {
+	public void testDefaultAlignedUnion() throws Exception {
 		init(emptyUnion, pgmRootCat, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -100,23 +98,32 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testEnablementDefaultAlignedUnion() throws Exception {
+	public void testEnablementDefaultAlignedUnion() throws Exception {
 		emptyUnion.setPackingEnabled(true);
 		init(emptyUnion, pgmRootCat, false);
+
+		CompositeEditorTableAction undoAction =
+			provider.actionMgr.getNamedAction("Undo Editor Change");
+		assertNotNull(undoAction);
+		checkEnablement(undoAction, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
 		addDataType(new ByteDataType());
 		addDataType(new FloatDataType());
 		addDataType(arrayDt);
 
+		// Undo should be enabled
+
 		// Check enablement.
 		CompositeEditorTableAction[] pActions = provider.getActions();
 		for (CompositeEditorTableAction pAction : pActions) {
-			if ((pAction instanceof FavoritesAction) ||
-				(pAction instanceof CycleGroupAction) ||
-				(pAction instanceof EditFieldAction) ||
-				(pAction instanceof PointerAction) ||
-				(pAction instanceof HexNumbersAction) || (pAction instanceof ApplyAction)) {
+			if ((pAction instanceof FavoritesAction) || (pAction instanceof CycleGroupAction) ||
+				(pAction instanceof EditFieldAction) || (pAction instanceof PointerAction) ||
+				(pAction instanceof HexNumbersAction) || (pAction instanceof MoveDownAction) ||
+				(pAction instanceof DuplicateAction) ||
+				(pAction instanceof DuplicateMultipleAction) || (pAction instanceof DeleteAction) ||
+				(pAction instanceof ArrayAction) || (pAction instanceof ShowComponentPathAction) ||
+				(pAction instanceof ApplyAction) || (pAction instanceof UndoChangeAction)) {
 				checkEnablement(pAction, true);
 			}
 			else {
@@ -135,7 +142,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testMachineAlignedUnion() throws Exception {
+	public void testMachineAlignedUnion() throws Exception {
 		init(emptyUnion, pgmRootCat, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -160,7 +167,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testByValueAlignedUnion() throws Exception {
+	public void testByValueAlignedUnion() throws Exception {
 		init(emptyUnion, pgmRootCat, false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -192,31 +199,32 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testByValue1AlignedUnion() throws Exception {
+	public void testByValue1AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(1, 4, 8);
 	}
 
 	@Test
-    public void testByValue2AlignedUnion() throws Exception {
+	public void testByValue2AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(2, 4, 8);
 	}
 
 	@Test
-    public void testByValue4AlignedUnion() throws Exception {
+	public void testByValue4AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(4, 4, 8);
 	}
 
 	@Test
-    public void testByValue8AlignedUnion() throws Exception {
+	public void testByValue8AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(8, 8, 8);
 	}
 
 	@Test
-    public void testByValue16AlignedUnion() throws Exception {
+	public void testByValue16AlignedUnion() throws Exception {
 		checkByValueAlignedUnion(16, 16, 16);
 	}
 
-	public void checkByValueAlignedUnion(int minAlignment, int alignment, int length) throws Exception {
+	public void checkByValueAlignedUnion(int minAlignment, int alignment, int length)
+			throws Exception {
 		emptyUnion.setPackingEnabled(true);
 		emptyUnion.setExplicitMinimumAlignment(minAlignment);
 
@@ -248,7 +256,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testTurnOffAlignmentInUnion() throws Exception {
+	public void testTurnOffAlignmentInUnion() throws Exception {
 		emptyUnion.setPackingEnabled(true);
 		emptyUnion.setExplicitMinimumAlignment(8);
 
@@ -296,7 +304,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertUnaligned1() throws Exception {
+	public void testInsertUnaligned1() throws Exception {
 		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -329,7 +337,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertUnaligned2() throws Exception {
+	public void testInsertUnaligned2() throws Exception {
 		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -362,7 +370,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertUnaligned3() throws Exception {
+	public void testInsertUnaligned3() throws Exception {
 		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -395,7 +403,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceUnaligned1() throws Exception {
+	public void testReplaceUnaligned1() throws Exception {
 		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -427,7 +435,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceUnaligned2() throws Exception {
+	public void testReplaceUnaligned2() throws Exception {
 		emptyUnion.setPackingEnabled(false);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -460,7 +468,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertAligned1() throws Exception {
+	public void testInsertAligned1() throws Exception {
 		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -493,7 +501,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertAligned2() throws Exception {
+	public void testInsertAligned2() throws Exception {
 		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -526,7 +534,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testInsertAligned3() throws Exception {
+	public void testInsertAligned3() throws Exception {
 		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -559,7 +567,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceAligned1() throws Exception {
+	public void testReplaceAligned1() throws Exception {
 		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -591,7 +599,7 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	@Test
-    public void testReplaceAligned2() throws Exception {
+	public void testReplaceAligned2() throws Exception {
 		emptyUnion.setPackingEnabled(true);
 
 		DataType arrayDt = new ArrayDataType(new CharDataType(), 5, 1);
@@ -635,7 +643,8 @@ public class UnionEditorAlignmentTest extends AbstractUnionEditorTest {
 	}
 
 	private DataTypeComponent addDataType(DataType dataType) {
-		return unionModel.viewComposite.add(dataType);
+		return unionModel.viewDTM.withTransaction("Add Component",
+			() -> unionModel.viewComposite.add(dataType));
 	}
 
 }

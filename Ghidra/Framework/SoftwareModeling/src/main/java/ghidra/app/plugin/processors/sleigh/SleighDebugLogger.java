@@ -98,7 +98,7 @@ public class SleighDebugLogger {
 			append("\nNOTE: bitrange's number leftmost/most-significant bit as 0 (zero).\n");
 			append("      This bit numbering agrees with the context field specification\n");
 			append("      but differs from token field specification.  The bit correspondence\n");
-			append("      for token fields depends upon the specific token size/endianess and\n");
+			append("      for token fields depends upon the specific token size/endianness and\n");
 			append("      current byte-offset of pattern matcher.\n\n");
 
 			int contextSize = contextCache.getContextSize();
@@ -642,7 +642,7 @@ public class SleighDebugLogger {
 				String partialMatch = childMatchValue.hasValue() ? "" : "*";
 				String matchStr = match.equals(actual) ? " Match"
 						: (" Failed (=0x" + Long.toHexString(actual.longValue()) + ")");
-				int msb = baseRegSize - reg.getLeastSignificatBitInBaseRegister() - 1;
+				int msb = baseRegSize - reg.getLeastSignificantBitInBaseRegister() - 1;
 				int lsb = msb - reg.getBitLength() + 1;
 				append(partialMatch + reg.getName() + "(" + lsb + "," + msb + ") == 0x" +
 					Long.toHexString(match.longValue()) + matchStr);
@@ -685,7 +685,7 @@ public class SleighDebugLogger {
 			RegisterValue childActualValue = actualValue.getRegisterValue(reg);
 			if (childActualValue.hasAnyValue()) {
 				BigInteger actual = childActualValue.getUnsignedValueIgnoreMask();
-				int msb = baseRegSize - reg.getLeastSignificatBitInBaseRegister() - 1;
+				int msb = baseRegSize - reg.getLeastSignificantBitInBaseRegister() - 1;
 				int lsb = msb - reg.getBitLength() + 1;
 				append("Set " + reg.getName() + "(" + lsb + "," + msb + ") = 0x" +
 					Long.toHexString(actual.longValue()) + "\n");
@@ -737,7 +737,7 @@ public class SleighDebugLogger {
 			RegisterValue childActualValue = actualValue.getRegisterValue(reg);
 			if (childActualValue.hasAnyValue()) {
 				BigInteger actual = childActualValue.getUnsignedValueIgnoreMask();
-				int msb = baseRegSize - reg.getLeastSignificatBitInBaseRegister() - 1;
+				int msb = baseRegSize - reg.getLeastSignificantBitInBaseRegister() - 1;
 				int lsb = msb - reg.getBitLength() + 1;
 
 				append(msg + reg.getName() + "(" + lsb + "," + msb + ") = 0x" +

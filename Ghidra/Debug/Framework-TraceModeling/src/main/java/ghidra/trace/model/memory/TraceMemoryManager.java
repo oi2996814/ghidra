@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -49,6 +49,12 @@ public interface TraceMemoryManager extends TraceMemoryOperations {
 	 * space named after the path of each memory being recorded. Of course, the mapping still needs
 	 * to occur between the trace and parts of the display and during emulation.
 	 * 
+	 * <p>
+	 * NOTE: We are also moving away from (space, thread, frame) triples to uniquely identify
+	 * register storage. Instead, that will be encoded into the address space itself. Register
+	 * overlays will overlay register space and be named after the register container object, which
+	 * subsumes thread and frame when applicable.
+	 * 
 	 * @param name the name of the new address space
 	 * @param base the space after which this is modeled
 	 * @return the create space
@@ -56,6 +62,21 @@ public interface TraceMemoryManager extends TraceMemoryOperations {
 	 */
 	AddressSpace createOverlayAddressSpace(String name, AddressSpace base)
 			throws DuplicateNameException;
+
+	/**
+	 * Get or create an overlay address space
+	 * 
+	 * <p>
+	 * If the space already exists, and it overlays the given base, the existing space is returned.
+	 * If it overlays a different space, null is returned. If the space does not exist, it is
+	 * created with the given base space.
+	 * 
+	 * @see #createOverlayAddressSpace(String, AddressSpace)
+	 * @param name the name of the address space
+	 * @param base the expected base space
+	 * @return the space, or null
+	 */
+	AddressSpace getOrCreateOverlayAddressSpace(String name, AddressSpace base);
 
 	/**
 	 * Delete an overlay address space
@@ -87,15 +108,18 @@ public interface TraceMemoryManager extends TraceMemoryOperations {
 	 * @param createIfAbsent true to create the space if it's not already present
 	 * @return the space, or {@code null} if absent and not created
 	 */
-	TraceMemoryRegisterSpace getMemoryRegisterSpace(TraceThread thread, int frame,
+	TraceMemorySpace getMemoryRegisterSpace(TraceThread thread, int frame,
 			boolean createIfAbsent);
 
 	/**
 	 * Obtain a "memory" space bound to the register address space for frame 0 of a given thread
 	 * 
 	 * @see #getMemoryRegisterSpace(TraceThread, int, boolean)
+	 * @param thread the given thread
+	 * @param createIfAbsent true to create the space if it's not already present
+	 * @return the space, or {@code null} if absent and not created
 	 */
-	TraceMemoryRegisterSpace getMemoryRegisterSpace(TraceThread thread, boolean createIfAbsent);
+	TraceMemorySpace getMemoryRegisterSpace(TraceThread thread, boolean createIfAbsent);
 
 	/**
 	 * Obtain a "memory" space bound to the register address space for a stack frame
@@ -105,8 +129,11 @@ public interface TraceMemoryManager extends TraceMemoryOperations {
 	 * the given frame. Nor, if the frame is moved, will this space move with it.
 	 * 
 	 * @see #getMemoryRegisterSpace(TraceThread, int, boolean)
+	 * @param frame the stack frame
+	 * @param createIfAbsent true to create the space if it's not already present
+	 * @return the space, or {@code null} if absent and not created
 	 */
-	TraceMemoryRegisterSpace getMemoryRegisterSpace(TraceStackFrame frame, boolean createIfAbsent);
+	TraceMemorySpace getMemoryRegisterSpace(TraceStackFrame frame, boolean createIfAbsent);
 
 	/**
 	 * Collect all the regions added between two given snaps

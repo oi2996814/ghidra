@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
@@ -42,22 +42,7 @@ public class ImportDataDirectory extends DataDirectory {
 	ExportDataDirectory exportDirectory;
 	DataConverter conv = LittleEndianDataConverter.INSTANCE;
 
-	static ImportDataDirectory createImportDataDirectory(NTHeader ntHeader,
-			FactoryBundledWithBinaryReader reader) throws IOException {
-		ImportDataDirectory importDataDirectory =
-			(ImportDataDirectory) reader.getFactory().create(ImportDataDirectory.class);
-		importDataDirectory.initImportDataDirectory(ntHeader, reader);
-		return importDataDirectory;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public ImportDataDirectory() {
-	}
-
-	private void initImportDataDirectory(NTHeader ntHeader, FactoryBundledWithBinaryReader reader)
-			throws IOException {
+	ImportDataDirectory(NTHeader ntHeader, BinaryReader reader) throws IOException {
 		processDataDirectory(ntHeader, reader);
 
 		if (imports == null) {
@@ -90,15 +75,22 @@ public class ImportDataDirectory extends DataDirectory {
 	}
 
 	@Override
+	protected boolean validateSize() {
+		// The Windows loader is known to not check the size of this DataDirectory
+		return false;
+	}
+
+	@Override
 	public void markup(Program program, boolean isBinary, TaskMonitor monitor, MessageLog log,
-			NTHeader ntHeader) throws DuplicateNameException, CodeUnitInsertionException,
-			DataTypeConflictException, IOException, MemoryAccessException {
+			NTHeader nt)
+			throws DuplicateNameException, CodeUnitInsertionException, IOException,
+			MemoryAccessException {
 
 		if (imports == null || descriptors == null) {
 			return;
 		}
 		monitor.setMessage("[" + program.getName() + "]: import(s)...");
-		Address addr = PeUtils.getMarkupAddress(program, isBinary, ntHeader, virtualAddress);
+		Address addr = PeUtils.getMarkupAddress(program, isBinary, nt, virtualAddress);
 		if (!program.getMemory().contains(addr)) {
 			return;
 		}
@@ -114,8 +106,8 @@ public class ImportDataDirectory extends DataDirectory {
 
 			setPlateComment(program, addr, ImportDescriptor.NAME);
 			for (int j = 0; j < 5; ++j) {
-				PeUtils.createData(program, addr, DWORD, log);
-				addr = addr.add(DWORD.getLength());
+				PeUtils.createData(program, addr, DWordDataType.dataType, log);
+				addr = addr.add(DWordDataType.dataType.getLength());
 			}
 
 			if (descriptor.getName() == 0 && descriptor.getTimeDateStamp() == 0) {
@@ -126,7 +118,7 @@ public class ImportDataDirectory extends DataDirectory {
 			if (dll != null && dll.startsWith(program.getName())) {
 				Msg.warn(this,
 					program.getName() + " potentially modified via import of local exports");
-				DataDirectory[] dataDirectories = ntHeader.getOptionalHeader().getDataDirectories();
+				DataDirectory[] dataDirectories = nt.getOptionalHeader().getDataDirectories();
 				exportDirectory =
 					(ExportDataDirectory) dataDirectories[OptionalHeader.IMAGE_DIRECTORY_ENTRY_EXPORT];
 			}
@@ -164,7 +156,7 @@ public class ImportDataDirectory extends DataDirectory {
 					ExportInfo exportInfo = exportDirectory.getExports()[j];
 					long address = exportInfo.getAddress();
 					long thunkAddr = va(intptr, isBinary);
-					byte[] bytes = ntHeader.getOptionalHeader().is64bit() ? conv.getBytes(address)
+					byte[] bytes = nt.getOptionalHeader().is64bit() ? conv.getBytes(address)
 							: conv.getBytes((int) address);
 					try {
 						program.getMemory().setBytes(
@@ -183,8 +175,8 @@ public class ImportDataDirectory extends DataDirectory {
 					long ibnAddr = va(thunks[j].getAddressOfData(), isBinary);
 					Address ibnAddress = space.getAddress(ibnAddr);
 					setPlateComment(program, ibnAddress, ImportByName.NAME);
-					PeUtils.createData(program, ibnAddress, WORD, log);
-					Address ibnNameAddress = ibnAddress.add(WORD.getLength());
+					PeUtils.createData(program, ibnAddress, WordDataType.dataType, log);
+					Address ibnNameAddress = ibnAddress.add(WordDataType.dataType.getLength());
 					PeUtils.createData(program, ibnNameAddress, tsdt, log);
 				}
 
@@ -196,10 +188,11 @@ public class ImportDataDirectory extends DataDirectory {
 			throws MemoryAccessException {
 		DataType dt = null;
 		if (isBinary) {
-			dt = ntHeader.getOptionalHeader().is64bit() ? (DataType) QWORD : (DataType) DWORD;
+			dt = ntHeader.getOptionalHeader().is64bit() ? (DataType) QWordDataType.dataType
+					: (DataType) DWordDataType.dataType;
 		}
 		else {
-			dt = PointerDataType.getPointer(null, -1);
+			dt = new PointerDataType(null, -1, program.getDataTypeManager());
 		}
 		AddressSpace space = program.getAddressFactory().getDefaultAddressSpace();
 		long thunkAddr = va(iatptr, isBinary);
@@ -219,10 +212,11 @@ public class ImportDataDirectory extends DataDirectory {
 
 		DataType dt = null;
 		if (intptr == iatptr && !isBinary) {
-			dt = PointerDataType.getPointer(null, program.getMinAddress().getPointerSize());
+			dt = new PointerDataType(null, -1, program.getDataTypeManager());
 		}
 		else {
-			dt = ntHeader.getOptionalHeader().is64bit() ? (DataType) QWORD : (DataType) DWORD;
+			dt = ntHeader.getOptionalHeader().is64bit() ? (DataType) QWordDataType.dataType
+					: (DataType) DWordDataType.dataType;
 		}
 		PeUtils.createData(program, thunkAddress, dt, log);
 	}
@@ -237,7 +231,7 @@ public class ImportDataDirectory extends DataDirectory {
 			return false;
 		}
 
-		ImportDescriptor id = ImportDescriptor.createImportDescriptor(reader, ptr);
+		ImportDescriptor id = new ImportDescriptor(reader, ptr);
 		while (!id.isNullEntry()) {
 
 			ptr += ImportDescriptor.SIZEOF;
@@ -254,7 +248,7 @@ public class ImportDataDirectory extends DataDirectory {
 			int tmpPtr = ntHeader.rvaToPointer(id.getName());
 			if (tmpPtr < 0) {
 				//Msg.error(this, "Invalid RVA "+id.getName());
-				id = ImportDescriptor.createImportDescriptor(reader, ptr);
+				id = new ImportDescriptor(reader, ptr);
 				continue;
 			}
 			String dllName = reader.readAsciiString(tmpPtr);
@@ -274,7 +268,7 @@ public class ImportDataDirectory extends DataDirectory {
 			if (intptr < 0) {
 				Msg.error(this, "Invalid RVA " + Integer.toHexString(id.getOriginalFirstThunk()) +
 					" : " + Integer.toHexString(id.getFirstThunk()));
-				id = ImportDescriptor.createImportDescriptor(reader, ptr);
+				id = new ImportDescriptor(reader, ptr);
 				return false;
 			}
 			int iatptr = ntHeader.rvaToPointer(id.getFirstThunk());
@@ -290,12 +284,12 @@ public class ImportDataDirectory extends DataDirectory {
 					break;
 				}
 
-				ThunkData intThunk = ThunkData.createThunkData(reader, intptr,
-					ntHeader.getOptionalHeader().is64bit());
+				ThunkData intThunk =
+					new ThunkData(reader, intptr, ntHeader.getOptionalHeader().is64bit());
 				intptr += intThunk.getStructSize();
 
-				ThunkData iatThunk = ThunkData.createThunkData(reader, iatptr,
-					ntHeader.getOptionalHeader().is64bit());
+				ThunkData iatThunk =
+					new ThunkData(reader, iatptr, ntHeader.getOptionalHeader().is64bit());
 				iatptr += iatThunk.getStructSize();
 
 				if (intThunk.getAddressOfData() == 0) {
@@ -323,7 +317,7 @@ public class ImportDataDirectory extends DataDirectory {
 							"Invalid RVA " + Long.toHexString(intThunk.getAddressOfData()));
 						break;
 					}
-					ImportByName ibn = ImportByName.createImportByName(reader, ptrToData);
+					ImportByName ibn = new ImportByName(reader, ptrToData);
 
 					intThunk.setImportByName(ibn);
 
@@ -352,7 +346,13 @@ public class ImportDataDirectory extends DataDirectory {
 				importList.add(
 					new ImportInfo(addr, cmt.toString(), dllName, boundName, id.isBound()));
 			}
-			id = ImportDescriptor.createImportDescriptor(reader, ptr);
+			try {
+				id = new ImportDescriptor(reader, ptr);
+			}
+			catch (IOException e) {
+				// Minimized PE may terminate import descriptors with end-of-file
+				break;
+			}
 		}
 
 		imports = new ImportInfo[importList.size()];
@@ -375,17 +375,5 @@ public class ImportDataDirectory extends DataDirectory {
 				info.getDLL() + " " + info.getName() + "\n");
 		}
 		return buff.toString();
-	}
-
-	/**
-	 * @see ghidra.app.util.bin.StructConverter#toDataType()
-	 */
-	@Override
-	public DataType toDataType() throws DuplicateNameException {
-		StructureDataType struct = new StructureDataType(NAME, 0);
-		DataType array = new ArrayDataType(BYTE, size, 1);
-		struct.add(array, array.getLength(), "IMPORT", null);
-		struct.setCategoryPath(new CategoryPath("/PE"));
-		return struct;
 	}
 }

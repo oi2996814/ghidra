@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -142,14 +142,14 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		// example
 		// dword ptr param, EAX
-		String searchText = "param";
+		String searchText = "local_";
 		SearchOptions options = new SearchOptions(searchText, false, true, false);
 		searcher =
 			new ListingDisplaySearcher(tool, program, startLoc, null, options, TaskMonitor.DUMMY);
 
 		assertTrue(searcher.hasNext());
 		while (searcher.hasNext()) {
-			ProgramLocation location = searcher.next();
+			ProgramLocation location = searcher.next().programLocation();
 			testForMatchingText(searchText, location);
 		}
 	}
@@ -163,7 +163,7 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		// example
 		// dword ptr param, EAX
-		String searchText = "param";
+		String searchText = "local_";
 		SearchOptions options = new SearchOptions(searchText, false, false, false);
 
 		searcher =
@@ -171,7 +171,7 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		assertTrue(searcher.hasNext());
 		while (searcher.hasNext()) {
-			ProgramLocation location = searcher.next();
+			ProgramLocation location = searcher.next().programLocation();
 			testForMatchingText(searchText, location);
 		}
 	}
@@ -187,17 +187,21 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		// example
 		// dword ptr param, EAX
-		SearchOptions options = new SearchOptions("param", false, false, false, false, true, true,
+		SearchOptions options = new SearchOptions("local_", false, false, false, false, true, true,
 			false, false, false, true, false, false);
 		searcher =
 			new ListingDisplaySearcher(tool, program, startLoc, null, options, TaskMonitor.DUMMY);
 
 		//set up list of answers
 		ArrayList<Address> startList = new ArrayList<>();
-		startList.add(addr(0x0100416c));
-		startList.add(addr(0x01004186));
-		startList.add(addr(0x01004189));
-		startList.add(addr(0x0100419c));
+		startList.add(addr(0x01004162));
+		startList.add(addr(0x01004169));
+		startList.add(addr(0x0100416f));
+		startList.add(addr(0x01004178));
+		startList.add(addr(0x0100417c));
+		startList.add(addr(0x01004180));
+		startList.add(addr(0x01004196));
+		startList.add(addr(0x010041a1));
 
 		//check that the text is found there in the correct field
 		checkTextFound(startList, OperandFieldLocation.class);
@@ -267,10 +271,10 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		int transactionID = program.startTransaction("test");
 		try {
-			DataType dt = program.getDataTypeManager().addDataType(struct,
-				DataTypeConflictHandler.DEFAULT_HANDLER);
-			floatDt = program.getDataTypeManager().addDataType(new FloatDataType(),
-				DataTypeConflictHandler.DEFAULT_HANDLER);
+			DataType dt = program.getDataTypeManager()
+					.addDataType(struct, DataTypeConflictHandler.DEFAULT_HANDLER);
+			floatDt = program.getDataTypeManager()
+					.addDataType(new FloatDataType(), DataTypeConflictHandler.DEFAULT_HANDLER);
 			listing.createData(addr(0x0100689b), dt);
 			listing.createData(addr(0x0100688c), floatDt);
 			listing.createData(addr(0x01006890), floatDt);
@@ -287,7 +291,7 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 		// open the structure
 		cb.goToField(addr(0x0100689b), "+", 0, 0);
 		click(cb, 1);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		ProgramSelection sel = new ProgramSelection(addr(0x0100688c), addr(0x010068a3));
 		tool.firePluginEvent(new ProgramSelectionPluginEvent("test", sel, program));
@@ -344,10 +348,10 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		int transactionID = program.startTransaction("test");
 		try {
-			DataType dt = program.getDataTypeManager().addDataType(struct,
-				DataTypeConflictHandler.DEFAULT_HANDLER);
-			floatDt = program.getDataTypeManager().addDataType(new FloatDataType(),
-				DataTypeConflictHandler.DEFAULT_HANDLER);
+			DataType dt = program.getDataTypeManager()
+					.addDataType(struct, DataTypeConflictHandler.DEFAULT_HANDLER);
+			floatDt = program.getDataTypeManager()
+					.addDataType(new FloatDataType(), DataTypeConflictHandler.DEFAULT_HANDLER);
 			listing.createData(addr(0x0100689b), dt);
 			listing.createData(addr(0x0100688c), floatDt);
 			listing.createData(addr(0x01006890), floatDt);
@@ -362,12 +366,12 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 			program.endTransaction(transactionID, true);
 		}
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		// open the structure
 		cb.goToField(addr(0x0100689b), "+", 0, 0);
 		click(cb, 1);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		ProgramSelection sel = new ProgramSelection(addr(0x0100688c), addr(0x0100689f));
 		tool.firePluginEvent(new ProgramSelectionPluginEvent("test", sel, program));
@@ -378,38 +382,38 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 		searcher =
 			new ListingDisplaySearcher(tool, program, startLoc, sel, options, TaskMonitor.DUMMY);
 
-		ProgramLocation loc = searcher.next();
+		ProgramLocation loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100688c), loc.getByteAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x01006890), loc.getByteAddress());
 		assertTrue(loc instanceof MnemonicFieldLocation);
 		MnemonicFieldLocation mloc = (MnemonicFieldLocation) loc;
 		assertEquals("float", mloc.getMnemonic());
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x01006890), loc.getByteAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100689b), loc.getByteAddress());
 		assertTrue(loc instanceof MnemonicFieldLocation);
 		mloc = (MnemonicFieldLocation) loc;
 		assertEquals("float", mloc.getMnemonic());
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100689f), loc.getByteAddress());
 		assertTrue(loc instanceof MnemonicFieldLocation);
 		mloc = (MnemonicFieldLocation) loc;
 		assertEquals("float", mloc.getMnemonic());
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100689f), loc.getByteAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
@@ -432,10 +436,10 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		int transactionID = program.startTransaction("test");
 		try {
-			DataType dt = program.getDataTypeManager().addDataType(struct,
-				DataTypeConflictHandler.DEFAULT_HANDLER);
-			floatDt = program.getDataTypeManager().addDataType(new FloatDataType(),
-				DataTypeConflictHandler.DEFAULT_HANDLER);
+			DataType dt = program.getDataTypeManager()
+					.addDataType(struct, DataTypeConflictHandler.DEFAULT_HANDLER);
+			floatDt = program.getDataTypeManager()
+					.addDataType(new FloatDataType(), DataTypeConflictHandler.DEFAULT_HANDLER);
 			listing.createData(addr(0x0100689b), dt);
 			listing.createData(addr(0x0100688c), floatDt);
 			listing.createData(addr(0x01006890), floatDt);
@@ -450,12 +454,12 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 			program.endTransaction(transactionID, true);
 		}
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		// open the structure
 		cb.goToField(addr(0x0100689b), "+", 0, 0);
 		click(cb, 1);
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		AddressSet set = new AddressSet();
 		set.addRange(addr(0x0100688c), addr(0x0100688f));
@@ -469,26 +473,26 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 		searcher =
 			new ListingDisplaySearcher(tool, program, startLoc, sel, options, TaskMonitor.DUMMY);
 
-		ProgramLocation loc = searcher.next();
+		ProgramLocation loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100688c), loc.getByteAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100689b), loc.getByteAddress());
 		assertTrue(loc instanceof MnemonicFieldLocation);
 		MnemonicFieldLocation mloc = (MnemonicFieldLocation) loc;
 		assertEquals("float", mloc.getMnemonic());
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100689f), loc.getByteAddress());
 		assertTrue(loc instanceof MnemonicFieldLocation);
 		mloc = (MnemonicFieldLocation) loc;
 		assertEquals("float", mloc.getMnemonic());
 		//
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x0100689f), loc.getByteAddress());
 		assertTrue(loc instanceof CommentFieldLocation);
@@ -677,16 +681,15 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 		assertTrue(searcher.hasNext());
 
-		ProgramLocation loc = searcher.next();
+		ProgramLocation loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x01001068), loc.getByteAddress());
 		assertTrue(loc instanceof LabelFieldLocation);
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 		assertEquals(addr(0x01001068), loc.getByteAddress());
 		assertTrue(loc instanceof EolCommentFieldLocation);
-		loc = searcher.next();
-		assertNull(loc);
+		assertNull(searcher.next());
 
 	}
 
@@ -759,7 +762,6 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 		checkTextFound(addr(0x0100419f), OperandFieldLocation.class);
 		checkTextFound(addr(0x010041a1), LabelFieldLocation.class);
 		checkTextFound(addr(0x010041a4), LabelFieldLocation.class);
-
 	}
 
 //==================================================================================================
@@ -816,11 +818,9 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 
 	private void checkTextFound(ArrayList<Address> startList, Class<?> fieldClass) {
 
-		for (int i = 0; i < startList.size(); i++) {
-			ProgramLocation loc = searcher.next();
+		for (Address start : startList) {
+			ProgramLocation loc = searcher.next().programLocation();
 			assertNotNull(loc);
-			Address start = startList.get(i);
-
 			assertTrue(fieldClass.isAssignableFrom(loc.getClass()));
 			assertEquals(start, loc.getAddress());
 		}
@@ -831,7 +831,7 @@ public class ListingDisplaySearcherTest extends AbstractGhidraHeadedIntegrationT
 	private void checkTextFound(Address addr, Class<?> fieldClass) {
 		ProgramLocation loc;
 
-		loc = searcher.next();
+		loc = searcher.next().programLocation();
 		assertNotNull(loc);
 
 		assertTrue(fieldClass.isAssignableFrom(loc.getClass()));

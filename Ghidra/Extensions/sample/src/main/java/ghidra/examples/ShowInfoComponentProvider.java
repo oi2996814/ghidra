@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,15 +23,15 @@ import docking.ActionContext;
 import docking.WindowPosition;
 import docking.action.DockingAction;
 import docking.action.ToolBarData;
+import generic.theme.GIcon;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.*;
 import ghidra.program.util.ProgramLocation;
-import resources.ResourceManager;
 
 public class ShowInfoComponentProvider extends ComponentProviderAdapter {
-	private final static ImageIcon CLEAR_ICON = ResourceManager.loadImage("images/erase16.png");
-	private final static ImageIcon INFO_ICON = ResourceManager.loadImage("images/information.png");
+	private final static Icon CLEAR_ICON = new GIcon("icon.sample.hello.world.action.clear");
+	private final static Icon PROVIDER_ICON = new GIcon("icon.sample.provider.hello.world");
 
 	private JPanel panel;
 	private JTextArea textArea;
@@ -39,10 +39,10 @@ public class ShowInfoComponentProvider extends ComponentProviderAdapter {
 	private Program currentProgram;
 	private ProgramLocation currentLocation;
 
-	public ShowInfoComponentProvider(PluginTool tool, String name) {
-		super(tool, name, name);
+	public ShowInfoComponentProvider(PluginTool tool, String owner) {
+		super(tool, "Show Location Info", owner);
 		create();
-		setIcon(INFO_ICON);
+		setIcon(PROVIDER_ICON);
 		setDefaultWindowPosition(WindowPosition.BOTTOM);
 		setTitle("Show Info");
 		setVisible(true);
@@ -102,7 +102,7 @@ public class ShowInfoComponentProvider extends ComponentProviderAdapter {
 	}
 
 	private void createActions() {
-		clearAction = new DockingAction("Clear Text Area", getName()) {
+		clearAction = new DockingAction("Clear Text Area", getOwner()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				textArea.setText("");

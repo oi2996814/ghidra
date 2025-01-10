@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -90,7 +90,8 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 		for (CompositeEditorTableAction action : actions) {
 			if ((action instanceof FavoritesAction) || (action instanceof CycleGroupAction) ||
 				(action instanceof EditFieldAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -113,7 +114,8 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 				(action instanceof DuplicateAction) ||
 				(action instanceof DuplicateMultipleAction) || (action instanceof DeleteAction) ||
 				(action instanceof ArrayAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -136,7 +138,8 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 				(action instanceof MoveDownAction) || (action instanceof DuplicateAction) ||
 				(action instanceof DuplicateMultipleAction) || (action instanceof DeleteAction) ||
 				(action instanceof ArrayAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -159,7 +162,8 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 				(action instanceof DuplicateAction) ||
 				(action instanceof DuplicateMultipleAction) || (action instanceof DeleteAction) ||
 				(action instanceof ArrayAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -179,7 +183,8 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 			if ((action instanceof FavoritesAction) || (action instanceof CycleGroupAction)// enabled to show message
 				|| (action instanceof MoveDownAction) || (action instanceof MoveUpAction) ||
 				(action instanceof DeleteAction) || (action instanceof PointerAction) ||
-				(action instanceof HexNumbersAction)) {
+				(action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -198,7 +203,8 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 		setSelection(new int[] { 2, 3, 6, 7 });
 		for (CompositeEditorTableAction action : actions) {
 			if ((action instanceof FavoritesAction) || (action instanceof CycleGroupAction) ||
-				(action instanceof DeleteAction) || (action instanceof HexNumbersAction)) {
+				(action instanceof DeleteAction) || (action instanceof HexNumbersAction) ||
+				(action instanceof ShowDataTypeInTreeAction)) {
 				checkEnablement(action, true);
 			}
 			else {
@@ -339,6 +345,12 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 		invoke(floatAction);
 		assertEquals(1, model.getNumComponents());
 		assertTrue(getDataType(0).isEquivalent(new DoubleDataType()));
+		assertEquals(8, getLength(0));
+		checkSelection(new int[] { 0 });
+
+		invoke(floatAction);
+		assertEquals(1, model.getNumComponents());
+		assertTrue(getDataType(0).isEquivalent(new LongDoubleDataType()));
 		assertEquals(8, getLength(0));
 		checkSelection(new int[] { 0 });
 
@@ -563,7 +575,7 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 		num++;
 		assertEquals(num, model.getNumComponents());
 		assertEquals(len, model.getLength());
-		checkSelection(new int[] { 0 });
+		checkSelection(new int[] { 1 });
 		assertEquals(getDataType(0), dt0);
 		assertEquals(getDataType(1), dt0);
 		assertEquals(getDataType(2), dt1);
@@ -576,7 +588,7 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 		num++;
 		assertEquals(num, model.getNumComponents());
 		assertEquals(len, model.getLength());
-		checkSelection(new int[] { 6 });
+		checkSelection(new int[] { 7 });
 		assertEquals(getDataType(6), dt0);
 		assertEquals(getDataType(7), dt0);
 		assertEquals(getDataType(8), dt1);
@@ -773,15 +785,18 @@ public class UnionEditorActions1Test extends AbstractUnionEditorTest {
 
 	@Test
 	public void testApplyNameChange() throws Exception {
+
+		DataType viewCopy = complexUnion.clone(null);
+
 		init(complexUnion, pgmTestCat, false);
 
 		model.setName("FooBarUnion");
-		DataType viewCopy = model.viewComposite.clone(null);
 
-		assertTrue(complexUnion.isEquivalent(model.viewComposite));
+		assertTrue(viewCopy.isEquivalent(complexUnion));
+
 		assertEquals("FooBarUnion", model.getCompositeName());
 		assertEquals("complexUnion", complexUnion.getName());
-		assertTrue(viewCopy.isEquivalent(model.viewComposite));
+
 		invoke(applyAction);
 		assertTrue(viewCopy.isEquivalent(complexUnion));
 		assertTrue(viewCopy.isEquivalent(model.viewComposite));

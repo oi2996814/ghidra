@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,62 +19,65 @@ import javax.swing.BorderFactory;
 
 import docking.DialogComponentProvider;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.plugin.importer.LcsSelectionListener;
-import ghidra.plugin.importer.NewLanguagePanel;
+import ghidra.plugin.importer.*;
+import ghidra.plugin.importer.LcsSelectionEvent.Type;
 import ghidra.program.model.lang.*;
-import ghidra.program.model.listing.Program;
 import ghidra.program.util.DefaultLanguageService;
 import ghidra.util.HelpLocation;
+import ghidra.util.Msg;
 
 public class SetLanguageDialog extends DialogComponentProvider {
 
 	private NewLanguagePanel selectLangPanel;
-	private LanguageService langService;
 	private PluginTool tool;
-	private Program currProgram;
+	private LanguageCompilerSpecPair currentLcsPair;
 
-	private LanguageID dialogLanguageDescID;
-	private CompilerSpecID dialogCompilerSpecDescID;
+	private LanguageID dialogLanguageID;
+	private CompilerSpecID dialogCompilerSpecID;
 
-	LcsSelectionListener listener = e -> {
-		LanguageID langID = null;
-		CompilerSpecID compilerSpecID = null;
-		if (e.selection != null) {
-			langID = e.selection.languageID;
-			compilerSpecID = e.selection.compilerSpecID;
-		}
-		if ((langID != null) && (langID.equals(currProgram.getLanguageID()))) {
-			if ((compilerSpecID != null) &&
-				(compilerSpecID.equals(currProgram.getCompilerSpec().getCompilerSpecID()))) {
-				//selectLangPanel.setNotificationText("Please select a different Language or Compiler Spec.");
-				setStatusText("Please select a different Language or Compiler Spec.");
-				setOkEnabled(false);
-			}
-			else {
-				//selectLangPanel.setNotificationText(null);
-				setStatusText(null);
-				setOkEnabled(true);
-			}
-			return;
-		}
-		//selectLangPanel.setNotificationText("Setting the language from '" + currProgram.getLanguageName() + "' to '" + langDesc.getName() + "'...");
-		//selectLangPanel.setNotificationText(null);
-		setStatusText(null);
-		setOkEnabled(langID != null);
+	private LcsSelectionListener listener = e -> {
+		languageSelected(e.getLcs());
+		maybePressOk(e);
 	};
 
-	public SetLanguageDialog(PluginTool tool, Program program) {
-		super(getTitle(program), true, true, true, false);
-		currProgram = program;
-		this.tool = tool;
+	/**
+	 * Construct set Language/Compiler-Spec dialog
+	 * @param tool parent tool
+	 * @param programArch current program architecture or null
+	 * @param title dialog title
+	 */
+	public SetLanguageDialog(PluginTool tool, ProgramArchitecture programArch, String title) {
+		this(tool, programArch != null ? programArch.getLanguageCompilerSpecPair() : null, title);
+	}
 
-		langService = DefaultLanguageService.getLanguageService();
+	/**
+	 * Construct set Language/Compiler-Spec dialog
+	 * @param tool parent tool
+	 * @param languageId initial language ID or null
+	 * @param compilerSpecId initial Compiler-Spec ID or null
+	 * @param title dialog title
+	 */
+	public SetLanguageDialog(PluginTool tool, String languageId, String compilerSpecId,
+			String title) {
+		this(tool, getLanguageCompilerSpecPair(languageId, compilerSpecId), title);
+	}
+
+	/**
+	 * Construct set Language/Compiler-Spec dialog
+	 * @param tool parent tool
+	 * @param lcsPair language/compiler-spec ID pair or null
+	 * @param title dialog title
+	 */
+	public SetLanguageDialog(PluginTool tool, LanguageCompilerSpecPair lcsPair, String title) {
+		super(title, true, true, true, false);
+		currentLcsPair = lcsPair;
+		this.tool = tool;
 
 		selectLangPanel = new NewLanguagePanel();
 
-		LanguageCompilerSpecPair lcsPair = new LanguageCompilerSpecPair(currProgram.getLanguageID(),
-			currProgram.getCompilerSpec().getCompilerSpecID());
-		selectLangPanel.setSelectedLcsPair(lcsPair);
+		if (lcsPair != null) {
+			selectLangPanel.setSelectedLcsPair(lcsPair);
+		}
 
 		selectLangPanel.addSelectionListener(listener);
 
@@ -83,35 +86,90 @@ public class SetLanguageDialog extends DialogComponentProvider {
 		addWorkPanel(selectLangPanel);
 		addOKButton();
 		addCancelButton();
-		//getComponent().setPreferredSize(new Dimension(450, 430));
+
 		setOkEnabled(false);
 		setHelpLocation(new HelpLocation("LanguageProviderPlugin", "set language"));
 		selectLangPanel.setShowRecommendedCheckbox(false);
+
+		languageSelected(null); // kick to establish initial button enablement
 	}
 
-	private static String getTitle(Program program) {
-		return "Set Language: " + program.getDomainFile().getName();
+	private void languageSelected(LanguageCompilerSpecPair lcs) {
+		LanguageID langId = null;
+		CompilerSpecID compilerSpecID = null;
+		if (lcs != null) {
+			langId = lcs.languageID;
+			compilerSpecID = lcs.compilerSpecID;
+		}
+
+		if ((currentLcsPair != null) && (langId != null) &&
+			(langId.equals(currentLcsPair.getLanguageID()))) {
+			if (compilerSpecID != null &&
+				compilerSpecID.equals(currentLcsPair.getCompilerSpecID())) {
+				setStatusText("Please select a different Language or Compiler Spec.");
+				setOkEnabled(false);
+			}
+			else {
+				setStatusText(null);
+				setOkEnabled(true);
+			}
+			return;
+		}
+
+		setStatusText(null);
+		setOkEnabled(langId != null);
 	}
 
-	LanguageID getLanguageDescriptionID() {
+	private void maybePressOk(LcsSelectionEvent e) {
+		if (e.getType() == Type.PICKED && isOKEnabled()) {
+			// the user picked (i.e., double-clicked) a language and it is valid, so use it
+			okCallback();
+		}
+	}
+
+	private static LanguageCompilerSpecPair getLanguageCompilerSpecPair(String languageIdStr,
+			String compilerSpecIdStr) {
+		if (languageIdStr == null) {
+			return null;
+		}
+		LanguageService languageService = DefaultLanguageService.getLanguageService();
+		try {
+			LanguageID languageId = new LanguageID(languageIdStr);
+			LanguageDescription descr = languageService.getLanguageDescription(languageId);
+			CompilerSpecID compilerSpecId = new CompilerSpecID(compilerSpecIdStr);
+			try {
+				descr.getCompilerSpecDescriptionByID(compilerSpecId);
+			}
+			catch (CompilerSpecNotFoundException e) {
+				Msg.warn(SetLanguageDialog.class, e.getMessage());
+			}
+			return new LanguageCompilerSpecPair(languageId, compilerSpecId);
+		}
+		catch (LanguageNotFoundException e) {
+			Msg.warn(SetLanguageDialog.class, e.getMessage());
+			return null;
+		}
+	}
+
+	public LanguageID getLanguageDescriptionID() {
 		tool.showDialog(this);
-		return dialogLanguageDescID;
+		return dialogLanguageID;
 	}
 
-	CompilerSpecID getCompilerSpecDescriptionID() {
-		return dialogCompilerSpecDescID;
+	public CompilerSpecID getCompilerSpecDescriptionID() {
+		return dialogCompilerSpecID;
 	}
 
 	@Override
 	protected void okCallback() {
 		LanguageCompilerSpecPair selectedLcsPair = selectLangPanel.getSelectedLcsPair();
 		if (selectedLcsPair == null) {
-			dialogLanguageDescID = null;
-			dialogCompilerSpecDescID = null;
+			dialogLanguageID = null;
+			dialogCompilerSpecID = null;
 		}
 		else {
-			dialogLanguageDescID = selectedLcsPair.languageID;
-			dialogCompilerSpecDescID = selectedLcsPair.compilerSpecID;
+			dialogLanguageID = selectedLcsPair.languageID;
+			dialogCompilerSpecID = selectedLcsPair.compilerSpecID;
 		}
 		close();
 	}

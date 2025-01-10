@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,13 +32,14 @@ import org.junit.Before;
 
 import docking.test.AbstractDockingTest;
 import edu.uci.ics.jung.algorithms.layout.Layout;
-import generic.test.AbstractGenericTest;
 import ghidra.graph.graphs.AbstractTestVertex;
 import ghidra.graph.graphs.TestEdge;
-import ghidra.graph.support.*;
+import ghidra.graph.support.TestLayoutProvider;
+import ghidra.graph.support.TestVisualGraph;
 import ghidra.graph.viewer.event.mouse.VisualGraphMouseTrackingGraphMousePlugin;
 import ghidra.graph.viewer.event.mouse.VisualGraphPluggableGraphMouse;
 import ghidra.graph.viewer.event.picking.GPickedState;
+import ghidra.graph.viewer.layout.VisualGraphLayout;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
@@ -74,7 +75,6 @@ public abstract class AbstractVisualGraphTest extends AbstractDockingTest {
 	protected void buildAndLayoutGraph() throws CancelledException {
 		// the test machine has odd Swing exceptions when we construct UIs off the Swing thread
 		graph = runSwing(() -> buildGraph());
-
 		TestLayoutProvider layoutProvider = createLayoutProvider();
 		graph.setLayout(layoutProvider.getLayout(graph, TaskMonitor.DUMMY));
 		graphComponent = runSwing(() -> createGraphComponent(layoutProvider));
@@ -123,11 +123,11 @@ public abstract class AbstractVisualGraphTest extends AbstractDockingTest {
 	}
 
 	protected void swing(Runnable r) {
-		AbstractGenericTest.runSwing(r);
+		runSwing(r);
 	}
 
 	protected <T> T swing(Supplier<T> s) {
-		return AbstractGenericTest.runSwing(s);
+		return runSwing(s);
 	}
 
 	protected void waitForAnimation() {
@@ -191,7 +191,7 @@ public abstract class AbstractVisualGraphTest extends AbstractDockingTest {
 			GraphViewerUtils.translatePointFromViewSpaceToLayoutSpace(viewPoint, viewer);
 
 		swing(() -> {
-			TestGraphLayout layout = graph.getLayout();
+			VisualGraphLayout<AbstractTestVertex, TestEdge> layout = graph.getLayout();
 			Point2D p = layout.apply(v);
 			layout.setLocation(v,
 				new Point2D.Double(p.getX() + layoutPoint.getX(), p.getY() + layoutPoint.getY()));
@@ -258,7 +258,7 @@ public abstract class AbstractVisualGraphTest extends AbstractDockingTest {
 
 	protected void clickViewer(int x, int y) {
 		GraphViewer<AbstractTestVertex, TestEdge> viewer = graphComponent.getPrimaryViewer();
-		AbstractGenericTest.clickMouse(viewer, MouseEvent.BUTTON1, x, y, 1, 0);
+		clickMouse(viewer, MouseEvent.BUTTON1, x, y, 1, 0);
 		waitForSwing();
 	}
 
@@ -276,7 +276,7 @@ public abstract class AbstractVisualGraphTest extends AbstractDockingTest {
 		Point p = getViewLocation(v);
 		int x = p.x + xOffset;
 		int y = p.y + yOffset;
-		AbstractGenericTest.clickMouse(viewer, MouseEvent.BUTTON1, x, y, clickCount, 0);
+		clickMouse(viewer, MouseEvent.BUTTON1, x, y, clickCount, 0);
 		waitForSwing();
 
 		AbstractTestVertex focused = swing(() -> graph.getFocusedVertex());
@@ -318,12 +318,12 @@ public abstract class AbstractVisualGraphTest extends AbstractDockingTest {
 
 		int x = (int) p.getX();
 		int y = (int) p.getY();
-		AbstractGenericTest.moveMouse(viewer, x, y);
+		moveMouse(viewer, x, y);
 	}
 
 	protected void drag(int x1, int y1, int x2, int y2) {
 		GraphViewer<AbstractTestVertex, TestEdge> viewer = graphComponent.getPrimaryViewer();
-		AbstractGenericTest.dragMouse(viewer, MouseEvent.BUTTON1, x1, y1, x2, y2, 0);
+		dragMouse(viewer, MouseEvent.BUTTON1, x1, y1, x2, y2, 0);
 		waitForAnimation();
 	}
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,24 +15,19 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
-import java.util.Objects;
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * This class is the version of {@link AbstractModuleInformation} for Microsoft v6.00 PDB.
+ * This class is the version of {@link ModuleInformation} for Microsoft v6.00 PDB.
  */
-public class ModuleInformation600 extends AbstractModuleInformation {
-
-	//==============================================================================================
-	// Internals
-	//==============================================================================================
-	private AbstractPdb pdb;
+public class ModuleInformation600 extends ModuleInformation {
 
 	//==============================================================================================
 	// API
 	//==============================================================================================
 	public ModuleInformation600(AbstractPdb pdb) {
-		Objects.requireNonNull(pdb, "pdb cannot be null");
-		this.pdb = pdb;
+		super(pdb);
 		sectionContribution = new SectionContribution600();
 	}
 
@@ -51,14 +46,26 @@ public class ModuleInformation600 extends AbstractModuleInformation {
 			reader.parseNullTerminatedString(pdb.getPdbReaderOptions().getOneByteCharset());
 	}
 
+	/**
+	 * Not yet sure what this field represents
+	 * @return the value
+	 */
+	public long getNameIndexSourceFile() {
+		return nameIndexSourceFile;
+	}
+
+	/**
+	 * Not yet sure what this field represents
+	 * @return the value
+	 */
+	public long getNameCompilerPdbPath() {
+		return nameIndexCompilerPdbPath;
+	}
+
 	@Override
-	protected String dumpAdditionals() {
-		StringBuilder builder = new StringBuilder();
-		builder.append("\nnameIndexSourceFile: ");
-		builder.append(nameIndexSourceFile);
-		builder.append("\nnameIndexCompilerPdbPath: ");
-		builder.append(nameIndexCompilerPdbPath);
-		return builder.toString();
+	protected void dumpAdditionals(Writer writer) throws IOException {
+		writer.write("\nnameIndexSourceFile: " + nameIndexSourceFile);
+		writer.write("\nnameIndexCompilerPdbPath: " + nameIndexCompilerPdbPath);
 	}
 
 }

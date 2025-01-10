@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,10 +20,8 @@ import java.util.*;
 
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.StructConverter;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.program.model.data.*;
 import ghidra.program.model.symbol.SymbolUtilities;
-import ghidra.util.Conv;
 import ghidra.util.Msg;
 import ghidra.util.exception.DuplicateNameException;
 
@@ -70,27 +68,11 @@ public class DelayImportDescriptor implements StructConverter {
 	
 	private boolean isValid;
 
-	static DelayImportDescriptor createDelayImportDescriptor(NTHeader ntHeader,
-			FactoryBundledWithBinaryReader reader, int index) throws IOException {
-		DelayImportDescriptor delayImportDescriptor =
-			(DelayImportDescriptor) reader.getFactory().create(DelayImportDescriptor.class);
-		delayImportDescriptor.initDelayImportDescriptor(ntHeader, reader, index);
-		return delayImportDescriptor;
-	}
-
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public DelayImportDescriptor() {
-	}
-
-	private void initDelayImportDescriptor(NTHeader ntHeader,
-			FactoryBundledWithBinaryReader reader, int index) throws IOException {
-		
-        if (!ntHeader.checkPointer(index)) {
+	DelayImportDescriptor(NTHeader ntHeader, BinaryReader reader, int index) throws IOException {
+		if (!ntHeader.checkPointer(index)) {
 			Msg.error(this, "Invalid file index for " + Integer.toHexString(index));
 			return;
-        }
+		}
 
 		readFields(reader, index);
 		readName(ntHeader, reader);
@@ -114,7 +96,7 @@ public class DelayImportDescriptor implements StructConverter {
 		isValid = true;
 	}
 
-	private List<ThunkData> readThunks(NTHeader ntHeader, FactoryBundledWithBinaryReader reader,
+	private List<ThunkData> readThunks(NTHeader ntHeader, BinaryReader reader,
 			long ptr, boolean isName) throws IOException {
 		List<ThunkData> thunkList = new ArrayList<ThunkData>();
 		if (ptr == 0) {
@@ -137,8 +119,7 @@ public class DelayImportDescriptor implements StructConverter {
 				return null;
 			}
 			ThunkData thunk =
-				ThunkData.createThunkData(reader, (int) thunkPtr,
-					ntHeader.getOptionalHeader().is64bit());
+				new ThunkData(reader, (int) thunkPtr, ntHeader.getOptionalHeader().is64bit());
 			thunkList.add(thunk);
 			if (thunk.getAddressOfData() == 0)
 				break;
@@ -165,7 +146,7 @@ public class DelayImportDescriptor implements StructConverter {
 					Msg.error(this, "Invalid import pointer for "+thunk.getAddressOfData());
 					return thunkList;
 				}
-				ImportByName ibn = ImportByName.createImportByName(reader, (int) ibnPtr);
+				ImportByName ibn = new ImportByName(reader, (int) ibnPtr);
 				importByNameMap.put(thunk, ibn);
 				funcName = ibn.getName();
 				thunk.setImportByName(ibn);
@@ -178,8 +159,7 @@ public class DelayImportDescriptor implements StructConverter {
 		return thunkList;
 	}
 
-	private void readName(NTHeader ntHeader, FactoryBundledWithBinaryReader reader)
-			throws IOException {
+	private void readName(NTHeader ntHeader, BinaryReader reader) throws IOException {
 		if (szName == 0) {
 			return;
 		}
@@ -192,20 +172,20 @@ public class DelayImportDescriptor implements StructConverter {
 		dllName = reader.readAsciiString((int) namePtr);
 	}
 
-	private void readFields(FactoryBundledWithBinaryReader reader, int index) throws IOException {
+	private void readFields(BinaryReader reader, int index) throws IOException {
 		grAttrs = reader.readInt(index);
 		index += BinaryReader.SIZEOF_INT;
-		szName = reader.readInt(index) & Conv.INT_MASK;
+		szName = reader.readUnsignedInt(index);
 		index += BinaryReader.SIZEOF_INT;
-		phmod = reader.readInt(index) & Conv.INT_MASK;
+		phmod = reader.readUnsignedInt(index);
 		index += BinaryReader.SIZEOF_INT;
-		pIAT = reader.readInt(index) & Conv.INT_MASK;
+		pIAT = reader.readUnsignedInt(index);
 		index += BinaryReader.SIZEOF_INT;
-		pINT = reader.readInt(index) & Conv.INT_MASK;
+		pINT = reader.readUnsignedInt(index);
 		index += BinaryReader.SIZEOF_INT;
-		pBoundIAT = reader.readInt(index) & Conv.INT_MASK;
+		pBoundIAT = reader.readUnsignedInt(index);
 		index += BinaryReader.SIZEOF_INT;
-		pUnloadIAT = reader.readInt(index) & Conv.INT_MASK;
+		pUnloadIAT = reader.readUnsignedInt(index);
 		index += BinaryReader.SIZEOF_INT;
 		dwTimeStamp = reader.readInt(index);
 		index += BinaryReader.SIZEOF_INT;
@@ -318,7 +298,7 @@ public class DelayImportDescriptor implements StructConverter {
 
 	@Override
 	public DataType toDataType() throws DuplicateNameException, IOException {
-		DataType ibo32 = new ImageBaseOffset32DataType();
+		DataType ibo32 = new IBO32DataType();
 		StructureDataType struct = new StructureDataType(NAME, 0);
 		struct.add(DWORD, "grAttrs", null);
 		struct.add(ibo32, "szName", null);

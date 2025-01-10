@@ -29,15 +29,16 @@ import docking.action.*;
 import docking.widgets.OptionDialog;
 import docking.widgets.dialogs.InputDialog;
 import docking.widgets.label.GLabel;
-import docking.widgets.table.GTableFilterPanel;
 import docking.widgets.table.RowObjectFilterModel;
 import docking.widgets.table.columnfilter.*;
 import docking.widgets.table.constrainteditor.ColumnConstraintEditor;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import generic.util.WindowUtilities;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.layout.VerticalLayout;
-import resources.ResourceManager;
+import resources.Icons;
 import utility.function.Callback;
 
 /**
@@ -45,41 +46,41 @@ import utility.function.Callback;
  *
  * @param <R> the row type of the table being filtered.
  */
-public class ColumnFilterDialog<R> extends DialogComponentProvider
+public class ColumnFilterDialog<R> extends ReusableDialogComponentProvider
 		implements TableFilterDialogModelListener {
 
-	private final ColumnFilterDialogModel<R> filterModel;
+	private ColumnFilterManager<R> filterManager;
+	private ColumnFilterDialogModel<R> dialogModel;
+
+	private JTable table;
+	private RowObjectFilterModel<R> tableModel;
 
 	private JPanel filterPanelContainer;
 	private List<ColumnFilterPanel> filterPanels = new ArrayList<>();
 
 	private Callback closeCallback;
-	private GTableFilterPanel<R> gTableFilterPanel;
 
 	private JPanel bottomPanel;
 
-	private JTable table;
-	private RowObjectFilterModel<R> tableModel;
-
 	/**
 	 * Constructor
-	 *
-	 * @param gTableFilterPanel the GTableFilterPanel that launched this dialog.
+	 * 
+	 * @param filterManager the filter manager
 	 * @param table the table being filtered.
 	 * @param tableModel the table model.
 	 */
-	public ColumnFilterDialog(GTableFilterPanel<R> gTableFilterPanel, JTable table,
+	public ColumnFilterDialog(ColumnFilterManager<R> filterManager, JTable table,
 			RowObjectFilterModel<R> tableModel) {
-		super("Table Column Filters", WindowUtilities.areModalDialogsVisible());
-		this.gTableFilterPanel = gTableFilterPanel;
+		super("Table Column Filters", WindowUtilities.areModalDialogsVisible(), true, true, false);
+		this.filterManager = filterManager;
 		this.table = table;
 		this.tableModel = tableModel;
 
-		ColumnBasedTableFilter<R> columnTableFilter = gTableFilterPanel.getColumnTableFilter();
+		ColumnBasedTableFilter<R> columnTableFilter = filterManager.getCurrentFilter();
 
-		filterModel =
+		dialogModel =
 			new ColumnFilterDialogModel<>(tableModel, table.getColumnModel(), columnTableFilter);
-		filterModel.addListener(this);
+		dialogModel.addListener(this);
 
 		setHelpLocation(new HelpLocation("Trees", "Column_Filters"));
 		addWorkPanel(buildMainPanel());
@@ -95,8 +96,7 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		updateStatus();
 	}
 
-	public static <R> boolean hasFilterableColumns(JTable table,
-			RowObjectFilterModel<R> model) {
+	public static <R> boolean hasFilterableColumns(JTable table, RowObjectFilterModel<R> model) {
 		return !ColumnFilterDialogModel.getAllColumnFilterData(model, table.getColumnModel())
 				.isEmpty();
 	}
@@ -117,7 +117,7 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		DockingAction saveAction = new DockingAction("Save", "Filter") {
 			@Override
 			public boolean isEnabledForContext(ActionContext context) {
-				return !filterModel.getFilterRows().isEmpty() && filterModel.isValid();
+				return !dialogModel.getFilterRows().isEmpty() && dialogModel.isValid();
 			}
 
 			@Override
@@ -127,7 +127,7 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		};
 		saveAction.setHelpLocation(new HelpLocation("Trees", "Save_Filter"));
 		saveAction.setDescription("Save Filter");
-		saveAction.setToolBarData(new ToolBarData(ResourceManager.loadImage("images/disk.png")));
+		saveAction.setToolBarData(new ToolBarData(Icons.SAVE_ICON));
 		addAction(saveAction);
 
 		DockingAction loadAction = new DockingAction("Load", "Filter") {
@@ -138,15 +138,15 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		};
 		loadAction.setDescription("Load Filter");
 		loadAction.setHelpLocation(new HelpLocation("Trees", "Load_Filter"));
-		loadAction.setToolBarData(
-			new ToolBarData(ResourceManager.loadImage("images/openSmallFolder.png")));
+		loadAction.setToolBarData(new ToolBarData(Icons.OPEN_FOLDER_ICON));
 		addAction(loadAction);
 	}
 
 	private void saveFilter() {
-		ColumnFilterSaveManager<R> filterSaveManager = new ColumnFilterSaveManager<>(
-			gTableFilterPanel, table, tableModel, filterModel.getDataSource());
-		ColumnBasedTableFilter<R> filter = filterModel.getTableColumnFilter();
+		String preferenceKey = filterManager.getPreferenceKey();
+		ColumnFilterSaveManager<R> filterSaveManager = new ColumnFilterSaveManager<>(preferenceKey,
+			table, tableModel, dialogModel.getDataSource());
+		ColumnBasedTableFilter<R> filter = dialogModel.getTableColumnFilter();
 
 		String defaultName = new Date().toString();
 		InputDialog dialog = new InputDialog("Save Filter", "Filter Name: ", defaultName, d -> {
@@ -172,13 +172,14 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		filter.setName(filterName);
 		filterSaveManager.addFilter(filter);
 		filterSaveManager.save();
-		gTableFilterPanel.updateSavedFilters(filter, true);
-		filterModel.setFilter(filter);
+		filterManager.updateSavedFilters(filter, true);
+		dialogModel.setFilter(filter);
 	}
 
 	private void loadFilter() {
-		ColumnFilterSaveManager<R> filterSaveManager = new ColumnFilterSaveManager<>(
-			gTableFilterPanel, table, tableModel, filterModel.getDataSource());
+		String preferenceKey = filterManager.getPreferenceKey();
+		ColumnFilterSaveManager<R> filterSaveManager = new ColumnFilterSaveManager<>(preferenceKey,
+			table, tableModel, dialogModel.getDataSource());
 		List<ColumnBasedTableFilter<R>> savedFilters = filterSaveManager.getSavedFilters();
 		if (savedFilters.isEmpty()) {
 			Msg.showInfo(this, getComponent(), "No Saved Filters",
@@ -193,7 +194,7 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 
 		ColumnBasedTableFilter<R> selectedFilter = archiveDialog.getSelectedColumnFilter();
 		if (selectedFilter != null) {
-			filterModel.setFilter(selectedFilter);
+			dialogModel.setFilter(selectedFilter);
 		}
 	}
 
@@ -221,14 +222,12 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 			bottomPanel = new JPanel(new BorderLayout());
 			JPanel innerPanel = new JPanel(new VerticalLayout(3));
 
-			JButton addAndConditionButton =
-				new JButton("Add AND condition", ResourceManager.loadImage("images/Plus.png"));
+			JButton addAndConditionButton = new JButton("Add AND condition", Icons.ADD_ICON);
 
 			addAndConditionButton.addActionListener(e -> addFilterCondition(LogicOperation.AND));
 			addAndConditionButton.setEnabled(true);
 
-			JButton addOrConditionButton =
-				new JButton("Add  OR   condition", ResourceManager.loadImage("images/Plus.png"));
+			JButton addOrConditionButton = new JButton("Add  OR   condition", Icons.ADD_ICON);
 
 			addOrConditionButton.setHorizontalAlignment(SwingConstants.LEFT);
 			addOrConditionButton.addActionListener(e -> addFilterCondition(LogicOperation.OR));
@@ -249,7 +248,7 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		}
 		sb.append("Column Filter");
 
-		ColumnBasedTableFilter<R> filter = filterModel.getTableColumnFilter();
+		ColumnBasedTableFilter<R> filter = dialogModel.getTableColumnFilter();
 		if (filter != null && filter.getName() != null) {
 			sb.append(": ").append(filter.getName());
 		}
@@ -273,7 +272,7 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		// * Dialog state is different from applied filter and valid - prompt to apply filter.
 		// * Dialog state is different from applied filter, but invalid - prompt if should really close
 
-		if (!filterModel.hasUnappliedChanges()) {
+		if (!dialogModel.hasUnappliedChanges()) {
 			return true;
 		}
 		if (dialogHasValidFilter()) {
@@ -314,12 +313,12 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 	}
 
 	private boolean dialogHasValidFilter() {
-		return filterModel.getTableColumnFilter() != null;
+		return dialogModel.getTableColumnFilter() != null;
 	}
 
 	@Override
 	protected void dialogClosed() {
-		filterModel.dispose();
+		dialogModel.dispose();
 		if (closeCallback != null) {
 			closeCallback.call();
 		}
@@ -337,28 +336,29 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 	}
 
 	private void clearFilter() {
-		this.gTableFilterPanel.setColumnTableFilter(null);
-		filterModel.clear();
+		filterManager.setFilter(null);
+		dialogModel.clear();
 		updateStatus();
 	}
 
 	private void applyFilter() {
-		ColumnBasedTableFilter<R> tableColumnFilter = filterModel.getTableColumnFilter();
-		filterModel.setCurrentlyAppliedFilter(tableColumnFilter);
-		this.gTableFilterPanel.setColumnTableFilter(tableColumnFilter);
+		ColumnBasedTableFilter<R> tableColumnFilter = dialogModel.getTableColumnFilter();
+		dialogModel.setCurrentlyAppliedFilter(tableColumnFilter);
+		filterManager.setFilter(tableColumnFilter);
 	}
 
 	private void loadFilterRows() {
 		filterPanelContainer.removeAll();
 		filterPanels.clear();
 
-		List<DialogFilterRow> filterRows = filterModel.getFilterRows();
+		List<DialogFilterRow> filterRows = dialogModel.getFilterRows();
 		for (int i = 0; i < filterRows.size(); i++) {
 			DialogFilterRow filterRow = filterRows.get(i);
 			ColumnFilterPanel panel = new ColumnFilterPanel(filterRow);
 			if (i != 0) {
-				filterPanelContainer.add(
-					createLogicalOperationLabel(filterRow.getLogicOperation()));
+				LogicOperation op = filterRow.getLogicOperation();
+				GLabel label = createLogicalOperationLabel(op);
+				filterPanelContainer.add(label);
 			}
 			filterPanelContainer.add(panel);
 			filterPanels.add(panel);
@@ -369,7 +369,7 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 
 	private GLabel createLogicalOperationLabel(LogicOperation op) {
 		GLabel label = new GLabel("<" + op + ">", SwingConstants.CENTER);
-		label.setForeground(Color.GRAY);
+		label.setForeground(Messages.HINT);
 		return label;
 	}
 
@@ -380,14 +380,14 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 		headerPanel.add(new GLabel("Filter", SwingConstants.CENTER));
 		headerPanel.add(new GLabel("Filter Value", SwingConstants.CENTER));
 
-		headerPanel.setBorder(new CompoundBorder(
-			BorderFactory.createMatteBorder(0, 0, 1, 0, Color.DARK_GRAY.brighter().brighter()),
-			BorderFactory.createEmptyBorder(4, 0, 4, 0)));
+		headerPanel.setBorder(
+			new CompoundBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Colors.BORDER),
+				BorderFactory.createEmptyBorder(4, 0, 4, 0)));
 		return headerPanel;
 	}
 
 	private void addFilterCondition(LogicOperation logicalOperation) {
-		filterModel.createFilterRow(logicalOperation);
+		dialogModel.createFilterRow(logicalOperation);
 		scrollFilterPanelToBottom();
 	}
 
@@ -408,11 +408,11 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 	void updateStatus() {
 		setStatusText(getStatusMessage());
 
-		boolean isValid = filterModel.isValid();
+		boolean isValid = dialogModel.isValid();
 		setOkEnabled(isValid);
 		setApplyEnabled(isValid);
 
-		ActionContext context = new ActionContext();
+		ActionContext context = new DefaultActionContext();
 
 		for (DockingActionIf action : getActions()) {
 			action.setEnabled(action.isEnabledForContext(context));
@@ -421,11 +421,11 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 	}
 
 	public void filterChanged(ColumnBasedTableFilter<R> newFilter) {
-		if (Objects.equals(newFilter, filterModel.getTableColumnFilter())) {
+		if (Objects.equals(newFilter, dialogModel.getTableColumnFilter())) {
 			return;
 		}
 		getComponent().requestFocus();  // work around for java parenting bug where dialog appears behind
-		if (filterModel.hasUnappliedChanges()) {
+		if (dialogModel.hasUnappliedChanges()) {
 			int result = OptionDialog.showYesNoDialog(getComponent(), "Filter Changed",
 				"The filter has been changed externally.\n" +
 					" Do you want to update this editor and lose your current changes?");
@@ -433,14 +433,14 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 				return;
 			}
 		}
-		filterModel.setFilter(newFilter);
+		dialogModel.setFilter(newFilter);
 	}
 
 	private String getStatusMessage() {
-		if (filterModel.isEmpty()) {
+		if (dialogModel.isEmpty()) {
 			return "Please add a filter condition!";
 		}
-		if (!filterModel.isValid()) {
+		if (!dialogModel.isValid()) {
 			return "One or more filter values are invalid!";
 		}
 		return "";
@@ -471,9 +471,6 @@ public class ColumnFilterDialog<R> extends DialogComponentProvider
 	}
 
 	void filterRemoved(ColumnBasedTableFilter<R> filter) {
-		gTableFilterPanel.updateSavedFilters(filter, false);
-
+		filterManager.updateSavedFilters(filter, false);
 	}
-
-
 }

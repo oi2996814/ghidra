@@ -18,20 +18,20 @@ package ghidra.trace.database.program;
 import java.io.InputStream;
 import java.math.BigInteger;
 
+import javax.help.UnsupportedOperationException;
+
 import ghidra.framework.store.LockException;
 import ghidra.program.model.address.*;
-import ghidra.trace.database.memory.DBTraceMemoryRegion;
 import ghidra.trace.database.memory.DBTraceMemorySpace;
-import ghidra.trace.model.memory.TraceMemoryFlag;
-import ghidra.trace.model.memory.TraceMemorySpaceInputStream;
+import ghidra.trace.model.memory.*;
 
 // TODO: Proper locking all over here
 public class DBTraceProgramViewMemoryRegionBlock extends AbstractDBTraceProgramViewMemoryBlock {
 
-	private final DBTraceMemoryRegion region;
+	private final TraceMemoryRegion region;
 
 	public DBTraceProgramViewMemoryRegionBlock(DBTraceProgramView program,
-			DBTraceMemoryRegion region) {
+			TraceMemoryRegion region) {
 		super(program);
 		this.region = region;
 	}
@@ -47,7 +47,7 @@ public class DBTraceProgramViewMemoryRegionBlock extends AbstractDBTraceProgramV
 	}
 
 	@Override
-	protected AddressRange getAddressRange() {
+	public AddressRange getAddressRange() {
 		return region.getRange();
 	}
 
@@ -59,7 +59,7 @@ public class DBTraceProgramViewMemoryRegionBlock extends AbstractDBTraceProgramV
 	}
 
 	@Override
-	public int getPermissions() {
+	public int getFlags() {
 		int bits = 0;
 		for (TraceMemoryFlag flag : region.getFlags()) {
 			bits |= flag.getBits();
@@ -146,5 +146,16 @@ public class DBTraceProgramViewMemoryRegionBlock extends AbstractDBTraceProgramV
 	@Override
 	public void setVolatile(boolean v) {
 		region.setVolatile(v);
+	}
+
+	@Override
+	public boolean isArtificial() {
+		// By definition, any region present on target is non-artificial
+		return false;
+	}
+
+	@Override
+	public void setArtificial(boolean a) {
+		throw new UnsupportedOperationException();
 	}
 }

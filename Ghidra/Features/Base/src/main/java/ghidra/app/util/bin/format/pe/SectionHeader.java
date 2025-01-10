@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,7 +20,6 @@ import java.io.*;
 import ghidra.app.util.bin.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.mem.*;
-import ghidra.util.Conv;
 import ghidra.util.DataConverter;
 import ghidra.util.exception.DuplicateNameException;
 
@@ -176,8 +175,10 @@ public class SectionHeader implements StructConverter, ByteArrayConverter {
 	 * Align on 8192-byte boundary.
 	 */
 	public final static int IMAGE_SCN_ALIGN_8192BYTES = 0x00E00000;
-//  Unused                                                       = 0x00F00000;
-//  public final static int IMAGE_SCN_ALIGN_MASK                 = 0x00F00000;
+	/**
+	 * Mask for alignment flags
+	 */
+	public final static int IMAGE_SCN_ALIGN_MASK = 0x00F00000;
 	/**
 	 * Section contains extended relocations.
 	 */
@@ -535,7 +536,7 @@ public class SectionHeader implements StructConverter, ByteArrayConverter {
 		EnumDataType characteristicsEnum = new EnumDataType("SectionFlags", 4);
 		characteristicsEnum.setCategoryPath(new CategoryPath("/PE"));
 		for (SectionFlags flag : SectionFlags.values()) {
-			characteristicsEnum.add(flag.name(), Conv.intToLong(flag.getMask()));
+			characteristicsEnum.add(flag.name(), Integer.toUnsignedLong(flag.getMask()));
 		}
 		struct.add(characteristicsEnum, "Characteristics", null);
 		struct.setCategoryPath(new CategoryPath("/PE"));

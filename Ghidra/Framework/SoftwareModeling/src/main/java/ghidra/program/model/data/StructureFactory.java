@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,8 +23,8 @@ import ghidra.program.model.listing.*;
 
 /**
  * Creates and initializes {@link Structure} objects.
- * 
- * 
+ *
+ *
  */
 public class StructureFactory {
 	public static final String DEFAULT_STRUCTURE_NAME = "struct";
@@ -33,26 +33,26 @@ public class StructureFactory {
 	 * Creates a {@link StructureDataType} instance based upon the information
 	 * provided.  The instance will not be placed in memory.
 	 * <p>
-	 * This method is just a pass-through method for 
+	 * This method is just a pass-through method for
 	 * {@link #createStructureDataType(Program,Address,int,String,boolean)}
 	 * equivalent to calling:
 	 * <pre>
 	 *      Structure newStructure = StructureFactory.createStructureDataType(
 	 *          program, address, dataLength, DEFAULT_STRUCTURE_NAME, true );
 	 * </pre>
-	 * 
+	 *
 	 * @param  program The program to which the structure will belong.
 	 * @param  address The address of the structure.
 	 * @param  dataLength The number of components to add to the structure.
 	 * @return A new structure not yet added to memory.
 	 * @throws IllegalArgumentException for the following conditions:
 	 *         <ul>
-	 *              <li>if <code>dataLength</code> is not greater than zero
+	 *              <li>if <code>dataLength</code> is not greater than zero</li>
 	 *              <li>if the number of components to add exceeds the available
-	 *                  address space
-	 *              <li>if there are any instructions in the provided 
-	 *                  address space
-	 *              <li>if there are no data components to add to the structure
+	 *                  address space</li>
+	 *              <li>if there are any instructions in the provided
+	 *                  address space</li>
+	 *              <li>if there are no data components to add to the structure</li>
 	 *         </ul>
 	 */
 	public static Structure createStructureDataType(Program program, Address address,
@@ -63,7 +63,7 @@ public class StructureFactory {
 	/**
 	 * Creates a {@link StructureDataType} instance based upon the information
 	 * provided.  The instance will not be placed in memory.
-	 * 
+	 *
 	 * @param  program The program to which the structure will belong.
 	 * @param  address The address of the structure.
 	 * @param  dataLength The number of components to add to the structure.
@@ -73,13 +73,13 @@ public class StructureFactory {
 	 * @return A new structure not yet added to memory.
 	 * @throws IllegalArgumentException for the following conditions:
 	 *         <ul>
-	 *              <li>if <code>structureName</code> is <code>null</code>
-	 *              <li>if <code>dataLength</code> is not greater than zero
+	 *              <li>if <code>structureName</code> is <code>null</code></li>
+	 *              <li>if <code>dataLength</code> is not greater than zero</li>
 	 *              <li>if the number of components to add exceeds the available
-	 *                  address space
-	 *              <li>if there are any instructions in the provided 
-	 *                  address space
-	 *              <li>if there are no data components to add to the structure
+	 *                  address space</li>
+	 *              <li>if there are any instructions in the provided
+	 *                  address space</li>
+	 *              <li>if there are no data components to add to the structure</li>
 	 *         </ul>
 	 */
 	public static Structure createStructureDataType(Program program, Address address,
@@ -125,18 +125,18 @@ public class StructureFactory {
 	}
 
 	/**
-	 * Creates a {@link StructureDataType} instance, which is inside of 
-	 * another structure, based upon the information provided.  The instance 
+	 * Creates a {@link StructureDataType} instance, which is inside of
+	 * another structure, based upon the information provided.  The instance
 	 * will not be placed in memory.
 	 * <p>
-	 * This method is just a pass-through method for 
+	 * This method is just a pass-through method for
 	 * {@link #createStructureDataTypeInStrucuture(Program,Address,int[],int[],String,boolean)}
 	 * equivalent to calling:
 	 * <pre>
 	 *      Structure newStructure = StructureFactory.createStructureDataTypeInStrucuture(
 	 *          program, address, fromPath, toPath, DEFAULT_STRUCTURE_NAME, true );
 	 * </pre>
-	 * 
+	 *
 	 * @param  program The program to which the structure will belong.
 	 * @param  address The address of the structure.
 	 * @param  fromPath The path to the first element in the parent structure
@@ -147,9 +147,9 @@ public class StructureFactory {
 	 * @throws IllegalArgumentException for the following conditions:
 	 *         <ul>
 	 *              <li>if the component at <code>fromPath</code> or the component
-	 *                  at <code>toPath</code> are null
-	 *              <li>if there is not data to add to the structure
-	 *              <li>if the parent data type is not a structure
+	 *                  at <code>toPath</code> are null</li>
+	 *              <li>if there is not data to add to the structure</li>
+	 *              <li>if the parent data type is not a structure</li>
 	 *         </ul>
 	 */
 	public static Structure createStructureDataTypeInStrucuture(Program program, Address address,
@@ -160,10 +160,10 @@ public class StructureFactory {
 	}
 
 	/**
-	 * Creates a {@link StructureDataType} instance, which is inside of 
-	 * another structure, based upon the information provided.  The instance 
+	 * Creates a {@link StructureDataType} instance, which is inside of
+	 * another structure, based upon the information provided.  The instance
 	 * will not be placed in memory.
-	 * 
+	 *
 	 * @param  program The program to which the structure will belong.
 	 * @param  address The address of the structure.
 	 * @param  fromPath The path to the first element in the parent structure
@@ -176,11 +176,11 @@ public class StructureFactory {
 	 * @return A new structure not yet added to memory.
 	 * @throws IllegalArgumentException for the following conditions:
 	 *         <ul>
-	 *              <li>if <code>structureName</code> is <code>null</code>
+	 *              <li>if <code>structureName</code> is <code>null</code></li>
 	 *              <li>if the component at <code>fromPath</code> or the component
-	 *                  at <code>toPath</code> are null
-	 *              <li>if there is not data to add to the structure
-	 *              <li>if the parent data type is not a structure
+	 *                  at <code>toPath</code> are null</li>
+	 *              <li>if there is not data to add to the structure</li>
+	 *              <li>if the parent data type is not a structure</li>
 	 *         </ul>
 	 */
 	public static Structure createStructureDataTypeInStrucuture(Program program, Address address,
@@ -227,7 +227,7 @@ public class StructureFactory {
 		return newStructure;
 	}
 
-	// uses the provided context to initiailze the provided structure with 
+	// uses the provided context to initialize the provided structure with
 	// dataLength number of components
 	private static void initializeStructureFromContext(Structure structure,
 			DataTypeProviderContext context, int dataLength) {
@@ -249,8 +249,8 @@ public class StructureFactory {
 		}
 
 		for (DataTypeComponent dataComp : dataComps) {
-			structure.add(dataComp.getDataType(), dataComp.getLength(),
-				dataComp.getFieldName(), dataComp.getComment());
+			structure.add(dataComp.getDataType(), dataComp.getLength(), dataComp.getFieldName(),
+				dataComp.getComment());
 		}
 	}
 }

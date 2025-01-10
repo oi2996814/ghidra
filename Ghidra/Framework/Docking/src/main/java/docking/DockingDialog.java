@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,10 +25,10 @@ import javax.swing.*;
 import org.apache.commons.collections4.map.LazyMap;
 
 import docking.framework.ApplicationInformationDisplayFactory;
-import docking.help.HelpDescriptor;
 import generic.util.WindowUtilities;
 import ghidra.framework.Application;
 import ghidra.util.bean.GGlassPane;
+import help.HelpDescriptor;
 
 // NOTE: this class has a static focus component variable that is set whenever the dialog gets
 // activated and is scheduled to get focus at a later time.  This variable is static so that only
@@ -55,21 +55,20 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 
 	/**
 	 * Creates a default parent frame that will appear in the OS's task bar.  Having this frame
-	 * gives the user something to click when their dialog is lost.  We attempt to hide this 
+	 * gives the user something to click when their dialog is lost.  We attempt to hide this
 	 * frame offscreen.
-	 * 
+	 *
 	 * Note: we expect to only get here when there is no parent window found.  This usually
-	 * only happens during tests and one-off main methods that are not part of a 
+	 * only happens during tests and one-off main methods that are not part of a
 	 * running tool.
-	 * 
-	 * @param componentProvider the dialog content for this dialog
+	 *
 	 * @return the hidden frame
 	 */
-	private static JFrame createHiddenParentFrame(DialogComponentProvider componentProvider) {
+	private static JFrame createHiddenParentFrame() {
 
 		//
 		// Note: we expect to only get here when there is no parent window found.  This usually
-		//       only happens during tests and one-off main methods that are not part of a 
+		//       only happens during tests and one-off main methods that are not part of a
 		//       running tool
 		//
 		HiddenDockingFrame hiddenFrame = new HiddenDockingFrame(Application.getName());
@@ -118,7 +117,7 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 	}
 
 	private DockingDialog(DialogComponentProvider comp, Component centeredOnComponent) {
-		super(createHiddenParentFrame(comp), comp.getTitle(), comp.isModal());
+		super(createHiddenParentFrame(), comp.getTitle(), comp.isModal());
 		init(comp);
 		initializeLocationAndSize(centeredOnComponent);
 	}
@@ -130,10 +129,10 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 		Rectangle lastBounds = boundsInfo.getEndBounds();
 		applySize(lastBounds); // apply the size before we try to center
 
-		Point initialLocation = component.getIntialLocation();
+		Point initialLocation = component.getInitialLocation();
 		if (initialLocation != null) {
-			// NOTE: have to call setLocation() twice because the first time the native peer 
-			// component's location is not actually changed; calling setLocation() again 
+			// NOTE: have to call setLocation() twice because the first time the native peer
+			// component's location is not actually changed; calling setLocation() again
 			// does cause the location to change.
 			setLocation(initialLocation);
 			setLocation(initialLocation);
@@ -154,7 +153,7 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 	}
 
 	private void applySize(Rectangle savedBounds) {
-		boolean rememberSize = component.getRemberSize();
+		boolean rememberSize = component.getRememberSize();
 		if (rememberSize && savedBounds != null) {
 			setSize(savedBounds.width, savedBounds.height);
 			return;
@@ -211,7 +210,11 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 
 			@Override
 			public void windowOpened(WindowEvent e) {
-				component.dialogShown();
+				Tool tool = null;
+				if (owningWindowManager != null) {
+					tool = owningWindowManager.getTool();
+				}
+				component.dialogShown(tool);
 			}
 
 			@Override
@@ -258,7 +261,7 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 	}
 
 	private void cleanup() {
-		if (component.getRemberSize() || component.getRememberLocation()) {
+		if (component.getRememberSize() || component.getRememberLocation()) {
 			String key = getKey();
 			Rectangle rect = getBounds();
 			BoundsInfo boundsInfo = dialogBoundsMap.get(key);
@@ -286,7 +289,7 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 			JFrame f = (JFrame) myParent;
 			Window[] ownedWindows = f.getOwnedWindows();
 			for (Window window : ownedWindows) {
-				if (window != this) {
+				if (window != this && window.isVisible()) {
 					return;
 				}
 			}
@@ -297,6 +300,15 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 
 	DialogComponentProvider getComponent() {
 		return component;
+	}
+
+	/**
+	 * Returns true if the given provider is the provider owned by this dialog.
+	 * @param dcp the provider to check
+	 * @return true if the given provider is the provider owned by this dialog
+	 */
+	public boolean containsProvider(DialogComponentProvider dcp) {
+		return component == dcp;
 	}
 
 	/**
@@ -320,10 +332,8 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 			return;
 		}
 
-		Rectangle r = getBounds();
 		Point p = WindowUtilities.centerOnComponent(c, this);
-		r.setLocation(p);
-		setBounds(r);
+		setLocation(p);
 	}
 
 	@Override
@@ -382,7 +392,7 @@ public class DockingDialog extends JDialog implements HelpDescriptor {
 
 		void setEndBounds(Rectangle bounds) {
 			if (Objects.equals(startBounds, bounds)) {
-				// keep the end bounds unchanged, which helps us later determine if the 
+				// keep the end bounds unchanged, which helps us later determine if the
 				// dialog was moved
 				return;
 			}

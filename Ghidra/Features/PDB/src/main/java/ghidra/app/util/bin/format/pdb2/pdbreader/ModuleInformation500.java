@@ -15,24 +15,19 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
-import java.util.Objects;
+import java.io.IOException;
+import java.io.Writer;
 
 /**
- * This class is the version of {@link AbstractModuleInformation} for Microsoft v5.00 PDB.
+ * This class is the version of {@link ModuleInformation} for Microsoft v5.00 PDB.
  */
-public class ModuleInformation500 extends AbstractModuleInformation {
-
-	//==============================================================================================
-	// Internals
-	//==============================================================================================
-	private AbstractPdb pdb;
+public class ModuleInformation500 extends ModuleInformation {
 
 	//==============================================================================================
 	// API
 	//==============================================================================================
 	public ModuleInformation500(AbstractPdb pdb) {
-		Objects.requireNonNull(pdb, "pdb cannot be null");
-		this.pdb = pdb;
+		super(pdb);
 		sectionContribution = new SectionContribution400();
 	}
 
@@ -51,8 +46,8 @@ public class ModuleInformation500 extends AbstractModuleInformation {
 	}
 
 	@Override
-	protected String dumpAdditionals() {
-		return "";
+	protected void dumpAdditionals(Writer writer) throws IOException {
+		// do nothing
 	}
 
 }

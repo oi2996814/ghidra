@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,6 +28,7 @@ import org.jdom.Element;
 import generic.util.WindowUtilities;
 import ghidra.framework.OperatingSystem;
 import ghidra.framework.Platform;
+import ghidra.util.Swing;
 import ghidra.util.bean.GGlassPane;
 import ghidra.util.datastruct.WeakDataStructureFactory;
 import ghidra.util.datastruct.WeakSet;
@@ -52,9 +53,12 @@ class RootNode extends WindowNode {
 
 	/**
 	 * Constructs a new root node for the given DockingWindowsManager.
+	 * 
 	 * @param mgr the DockingWindowsManager
 	 * @param toolName the name of the tool to be displayed in all the top-level windows.
-	 * @param factory a factory for creating drop targets for this nodes windows; may be null 
+	 * @param images the frame icons
+	 * @param isModal true if modal
+	 * @param factory a factory for creating drop targets for this nodes windows; may be null
 	 */
 	RootNode(DockingWindowManager mgr, String toolName, List<Image> images, boolean isModal,
 			DropTargetFactory factory) {
@@ -139,8 +143,8 @@ class RootNode extends WindowNode {
 	}
 
 	/**
-	 * Set the tool name which is displayed as the title
-	 * for all windows.
+	 * Set the tool name which is displayed as the title for all windows.
+	 * 
 	 * @param toolName tool name / title
 	 */
 	void setToolName(String toolName) {
@@ -176,6 +180,7 @@ class RootNode extends WindowNode {
 
 	/**
 	 * Set the Icon for all windows.
+	 * 
 	 * @param icon image icon
 	 */
 	void setIcon(ImageIcon icon) {
@@ -190,12 +195,16 @@ class RootNode extends WindowNode {
 
 	/**
 	 * Sets the main frame and all sub windows visible state.
+	 * 
 	 * @param state true to show them, false to make them invisible.
 	 */
 	void setVisible(boolean state) {
 		Window mainWindow = getMainWindow();
 		mainWindow.setVisible(state);
-		WindowUtilities.ensureOnScreen(mainWindow);
+
+		if (state) {
+			WindowUtilities.ensureOnScreen(mainWindow);
+		}
 
 		Iterator<DetachedWindowNode> it = detachedWindows.iterator();
 		while (it.hasNext()) {
@@ -204,18 +213,19 @@ class RootNode extends WindowNode {
 		}
 	}
 
-	void add(ComponentPlaceholder info) {
-		add(info, (Point) null);
+	void addToNewWindow(ComponentPlaceholder placeholder) {
+		addToNewWindow(placeholder, (Point) null);
 	}
 
 	/**
 	 * Creates a new sub-window for the given component a positions it at the given location.
-	 * @param info the component to be put in its own window.
+	 * 
+	 * @param placeholder the component to be put in its own window.
 	 * @param loc the location for the new window.
 	 */
-	void add(ComponentPlaceholder info, Point loc) {
+	void addToNewWindow(ComponentPlaceholder placeholder, Point loc) {
 		ComponentNode node = new ComponentNode(winMgr);
-		info.setNode(node);
+		placeholder.setNode(node);
 		node.parent = this;
 		DetachedWindowNode windowNode =
 			new DetachedWindowNode(winMgr, this, node, dropTargetFactory);
@@ -223,22 +233,18 @@ class RootNode extends WindowNode {
 			windowNode.setInitialLocation(loc.x, loc.y);
 		}
 		detachedWindows.add(windowNode);
-		info.getNode().add(info);
-		info.requestFocus();
+		placeholder.getNode().add(placeholder);
+		placeholder.requestFocusWhenReady();
 		notifyWindowAdded(windowNode);
 	}
 
-	/**
-	 * Adds the component to the main window.
-	 * @param info the component to be added.
-	 */
-	void add(ComponentPlaceholder info, WindowPosition initialPosition) {
+	void add(ComponentPlaceholder placeholder, WindowPosition initialPosition) {
 		if (initialPosition == WindowPosition.WINDOW) {
-			add(info);
+			addToNewWindow(placeholder);
 			return;
 		}
 		ComponentNode node = new ComponentNode(winMgr);
-		info.setNode(node);
+		placeholder.setNode(node);
 		if (child == null) {
 			node.parent = this;
 			child = node;
@@ -260,7 +266,7 @@ class RootNode extends WindowNode {
 			}
 			child.parent = this;
 		}
-		info.getNode().add(info);
+		placeholder.getNode().add(placeholder);
 	}
 
 	/**
@@ -288,6 +294,7 @@ class RootNode extends WindowNode {
 
 	/**
 	 * Get the window which contains the specified component.
+	 * 
 	 * @param info component info
 	 * @return window or null if component is not visible or not found.
 	 */
@@ -367,9 +374,6 @@ class RootNode extends WindowNode {
 		node.parent = null;
 	}
 
-	/**
-	 * Returns the main frame of the tool.
-	 */
 	public JFrame getFrame() {
 		return windowWrapper.getParentFrame();
 	}
@@ -392,15 +396,13 @@ class RootNode extends WindowNode {
 		return toolName;
 	}
 
-	/**
-	 * Returns list of detached windows (WindowNode objects).
-	 */
-	public List<DetachedWindowNode> getDetachedWindows() {
+	List<DetachedWindowNode> getDetachedWindows() {
 		return detachedWindows;
 	}
 
 	/**
 	 * Returns the tool name of the tool.
+	 * 
 	 * @return the tool name of the tool.
 	 */
 	String getToolName() {
@@ -426,12 +428,13 @@ class RootNode extends WindowNode {
 	Element saveToXML() {
 		Element root = new Element(ROOT_NODE_ELEMENT_NAME);
 		JFrame frame = windowWrapper.getParentFrame();
-		Rectangle r = frame.getBounds();
+		Rectangle r = getSaveableBounds();
 		root.setAttribute("X_POS", "" + r.x);
 		root.setAttribute("Y_POS", "" + r.y);
 		root.setAttribute("WIDTH", "" + r.width);
 		root.setAttribute("HEIGHT", "" + r.height);
 		root.setAttribute("EX_STATE", "" + frame.getExtendedState());
+
 		if (child != null) {
 			root.addContent(child.saveToXML());
 		}
@@ -443,9 +446,38 @@ class RootNode extends WindowNode {
 		return root;
 	}
 
+	private Rectangle getSaveableBounds() {
+
+		//
+		// The goal of this method is to get the correct window bounds to save.  When not maximized,
+		// this is simply the window's bounds.  However, when maximized, we wish to save the last
+		// non-maximized bounds so that toggle in and out of the maximized state will use the 
+		// correct non-maximized bounds.
+		//
+		JFrame frame = windowWrapper.getParentFrame();
+		int state = frame.getExtendedState();
+		if (state != Frame.MAXIMIZED_BOTH) {
+			return frame.getBounds();
+		}
+
+		Rectangle bounds = windowWrapper.getLastBounds();
+		if (bounds != null) {
+			return bounds;
+		}
+
+		// This implies the user has never maximized the window; just use the window bounds.
+		return frame.getBounds();
+	}
+
 	/**
 	 * Restores the component hierarchy from the given XML JDOM element.
-	 * @param root the XML from which to restore the state.
+	 * <p>
+	 * The process of restoring from xml will create new {@link ComponentPlaceholder}s that will be
+	 * used to replace any existing matching placeholders.  This allows the already loaded default
+	 * placeholders to be replaced by the previously saved configuration.
+	 * 
+	 * @param rootNodeElement the XML from which to restore the state.
+	 * @return the newly created placeholders
 	 */
 	List<ComponentPlaceholder> restoreFromXML(Element rootNodeElement) {
 		invalid = true;
@@ -455,17 +487,27 @@ class RootNode extends WindowNode {
 		detachedWindows.clear();
 		for (DetachedWindowNode windowNode : copy) {
 			notifyWindowRemoved(windowNode);
-			windowNode.dispose();
+			windowNode.disconnect();
 		}
 
 		int x = Integer.parseInt(rootNodeElement.getAttributeValue("X_POS"));
 		int y = Integer.parseInt(rootNodeElement.getAttributeValue("Y_POS"));
 		int width = Integer.parseInt(rootNodeElement.getAttributeValue("WIDTH"));
 		int height = Integer.parseInt(rootNodeElement.getAttributeValue("HEIGHT"));
+		int extendedState = Integer.parseInt(rootNodeElement.getAttributeValue("EX_STATE"));
 		JFrame frame = windowWrapper.getParentFrame();
 		Rectangle bounds = new Rectangle(x, y, width, height);
 		WindowUtilities.ensureOnScreen(frame, bounds);
 		frame.setBounds(bounds);
+		windowWrapper.setLastBounds(bounds);
+
+		Swing.runLater(() -> {
+			// On some systems setting the bounds will interfere with setting the extended state. 
+			// Run this later to ensure the extended state is applied after setting the bounds.  
+			// Executing in this order allows the bounds we set above to be used when the user
+			// transitions out of the maximized state.
+			frame.setExtendedState(extendedState);
+		});
 
 		List<ComponentPlaceholder> restoredPlaceholders = new ArrayList<>();
 		Iterator<?> elementIterator = rootNodeElement.getChildren().iterator();
@@ -585,38 +627,81 @@ class RootNode extends WindowNode {
 		}
 	}
 
+	public String getStatusText() {
+		return statusBar.getStatusText();
+	}
+
 	public Window getMainWindow() {
 		return windowWrapper.getWindow();
 	}
 
-//==================================================================================================
-// Inner Classes
-//==================================================================================================	
-
-	/** Interface to wrap JDialog and JFrame so that they can be used by one handle */
-	private interface SwingWindowWrapper {
-		boolean isVisible();
-
-		boolean isModal();
-
-		void validate();
-
-		Container getContentPane();
-
-		void setJMenuBar(JMenuBar menuBar);
-
-		void dispose();
-
-		Window getWindow();
-
-		JFrame getParentFrame();
-
-		void setTitle(String title);
-
-		String getTitle();
+	@Override
+	int getComponentCount() {
+		return child.getComponentCount();
 	}
 
-	private class JDialogWindowWrapper implements SwingWindowWrapper {
+//==================================================================================================
+// Inner Classes
+//==================================================================================================
+
+	/** Interface to wrap JDialog and JFrame so that they can be used by one handle */
+	private abstract class SwingWindowWrapper {
+
+		/**
+		 * The last known non-maximized window bounds
+		 */
+		private Rectangle lastBounds;
+
+		abstract boolean isVisible();
+
+		abstract boolean isModal();
+
+		abstract void validate();
+
+		abstract Container getContentPane();
+
+		abstract void setJMenuBar(JMenuBar menuBar);
+
+		abstract void dispose();
+
+		abstract Window getWindow();
+
+		abstract JFrame getParentFrame();
+
+		abstract void setTitle(String title);
+
+		abstract String getTitle();
+
+		/**
+		 * Stores the given bounds if they are not the maximized bounds
+		 * @param bounds the bounds
+		 */
+		public void setLastBounds(Rectangle bounds) {
+			Rectangle screenBounds = WindowUtilities.getScreenBounds(getWindow());
+			if (screenBounds == null) {
+				return;
+			}
+
+			Rectangle boundsSize = new Rectangle(bounds.getSize());
+			Rectangle screenSize = new Rectangle(screenBounds.getSize());
+			if (boundsSize.contains(screenSize)) {
+				// This can happen when the bounds being set are the full screen bounds.  We only 
+				// wish to save the non-maximized bounds.
+				return;
+			}
+			this.lastBounds = bounds;
+		}
+
+		/**
+		 * Returns the last non-maximized frame bounds
+		 * @return the bounds
+		 */
+		public Rectangle getLastBounds() {
+			return lastBounds;
+		}
+	}
+
+	private class JDialogWindowWrapper extends SwingWindowWrapper {
 
 		private final JDialog wrappedDialog;
 		private final SwingWindowWrapper parentFrame;
@@ -646,9 +731,16 @@ class RootNode extends WindowNode {
 				public void windowActivated(WindowEvent e) {
 					winMgr.setActive(wrappedDialog, true);
 				}
+
+				@Override
+				public void windowStateChanged(WindowEvent e) {
+					// this is called when transitioning in and out of the full-screen state
+					setLastBounds(wrappedDialog.getBounds());
+				}
 			};
 
 			dialog.addWindowListener(windowListener);
+			dialog.addWindowStateListener(windowListener);
 		}
 
 		@Override
@@ -670,6 +762,11 @@ class RootNode extends WindowNode {
 		}
 
 		@Override
+		public JFrame getParentFrame() {
+			return parentFrame.getParentFrame();
+		}
+
+		@Override
 		public boolean isVisible() {
 			return wrappedDialog.isVisible();
 		}
@@ -682,11 +779,6 @@ class RootNode extends WindowNode {
 		@Override
 		public void validate() {
 			wrappedDialog.validate();
-		}
-
-		@Override
-		public JFrame getParentFrame() {
-			return parentFrame.getParentFrame();
 		}
 
 		@Override
@@ -705,7 +797,7 @@ class RootNode extends WindowNode {
 		}
 	}
 
-	private class JFrameWindowWrapper implements SwingWindowWrapper {
+	private class JFrameWindowWrapper extends SwingWindowWrapper {
 
 		private final JFrame wrappedFrame;
 		private WindowAdapter windowListener;
@@ -746,8 +838,16 @@ class RootNode extends WindowNode {
 				public void windowDeiconified(WindowEvent e) {
 					winMgr.deIconify();
 				}
+
+				@Override
+				public void windowStateChanged(WindowEvent e) {
+					// this is called when transitioning in and out of the full-screen state
+					setLastBounds(wrappedFrame.getBounds());
+				}
 			};
+
 			wrappedFrame.addWindowListener(windowListener);
+			wrappedFrame.addWindowStateListener(windowListener);
 
 			wrappedFrame.setSize(800, 400);
 		}
@@ -770,6 +870,11 @@ class RootNode extends WindowNode {
 		}
 
 		@Override
+		public JFrame getParentFrame() {
+			return wrappedFrame;
+		}
+
+		@Override
 		public boolean isVisible() {
 			return wrappedFrame.isVisible();
 		}
@@ -782,11 +887,6 @@ class RootNode extends WindowNode {
 		@Override
 		public void validate() {
 			wrappedFrame.validate();
-		}
-
-		@Override
-		public JFrame getParentFrame() {
-			return wrappedFrame;
 		}
 
 		@Override
@@ -803,7 +903,6 @@ class RootNode extends WindowNode {
 		public boolean isModal() {
 			return false;
 		}
-
 	}
 
 	public void addDockingWindowListener(DockingWindowListener listener) {

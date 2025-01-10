@@ -18,5 +18,5 @@
 
 set -e
 
-java -jar "$0"
+java -jar "$0" ${@:1}
 exit

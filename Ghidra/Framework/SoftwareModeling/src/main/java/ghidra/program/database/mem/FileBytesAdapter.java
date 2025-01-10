@@ -19,7 +19,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
-import db.*;
+import db.DBBuffer;
+import db.DBHandle;
+import ghidra.framework.data.OpenMode;
+import ghidra.util.MonitoredInputStream;
+import ghidra.util.exception.IOCancelledException;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
 
@@ -44,21 +48,21 @@ abstract class FileBytesAdapter {
 		this.handle = handle;
 	}
 
-	static FileBytesAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor)
+	static FileBytesAdapter getAdapter(DBHandle handle, OpenMode openMode, TaskMonitor monitor)
 			throws VersionException, IOException {
 
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			return new FileBytesAdapterV0(handle, true);
 		}
 		try {
 			return new FileBytesAdapterV0(handle, false);
 		}
 		catch (VersionException e) {
-			if (!e.isUpgradable() || openMode == DBConstants.UPDATE) {
+			if (!e.isUpgradable() || openMode == OpenMode.UPDATE) {
 				throw e;
 			}
 			FileBytesAdapter adapter = findReadOnlyAdapter(handle);
-			if (openMode == DBConstants.UPGRADE) {
+			if (openMode == OpenMode.UPGRADE) {
 				adapter = upgrade(handle, adapter, monitor);
 			}
 			return adapter;
@@ -75,8 +79,21 @@ abstract class FileBytesAdapter {
 		return new FileBytesAdapterV0(handle, true);
 	}
 
-	abstract FileBytes createFileBytes(String filename, long offset, long size, InputStream is)
-			throws IOException;
+	/**
+	 * Create {@link FileBytes} from specified input stream
+	 * @param filename name of original file
+	 * @param offset position of input stream within original file or 0 if no file
+	 * @param size number of bytes to be read from input stream for stored file bytes
+	 * @param is input stream
+	 * @param monitor task monitor for progress and to allow cancellation.  This will be ignored if 
+	 * input stream is a {@link MonitoredInputStream}.  Monitor may be reinitialized and progress
+	 * updated while reading from input stream.
+	 * @return new file bytes
+	 * @throws IOException if error occurs reading input stream or writing file bytes to database
+	 * @throws IOCancelledException if operation was cancelled
+	 */
+	abstract FileBytes createFileBytes(String filename, long offset, long size, InputStream is,
+			TaskMonitor monitor) throws IOException;
 
 	/**
 	 * Returns a DBBuffer object for the given database buffer id

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,7 +23,8 @@ import java.io.File;
 
 import javax.swing.JTable;
 
-import org.junit.*;
+import org.junit.Before;
+import org.junit.Test;
 
 import docking.widgets.dialogs.NumberInputDialog;
 import ghidra.program.model.data.*;
@@ -31,7 +32,6 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Library;
 import ghidra.program.model.symbol.ExternalLocation;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.exception.DuplicateNameException;
 
 public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTest {
 
@@ -41,42 +41,6 @@ public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTe
 		super.setUp();
 		File dir = getDebugFileDirectory();
 		dir.mkdirs();
-	}
-
-	protected void init(Structure dt, final Category cat) {
-
-		boolean commit = true;
-		startTransaction("Structure Editor Test Initialization");
-
-		try {
-			DataTypeManager dataTypeManager = cat.getDataTypeManager();
-			if (dt.getDataTypeManager() != dataTypeManager) {
-				dt = dt.clone(dataTypeManager);
-			}
-
-			CategoryPath categoryPath = cat.getCategoryPath();
-			if (!dt.getCategoryPath().equals(categoryPath)) {
-				try {
-					dt.setCategoryPath(categoryPath);
-				}
-				catch (DuplicateNameException e) {
-					commit = false;
-					Assert.fail(e.getMessage());
-				}
-			}
-		}
-		finally {
-			endTransaction(commit);
-		}
-
-		final Structure structDt = dt;
-		runSwing(() -> {
-			installProvider(new StructureEditorProvider(plugin, structDt, false));
-			model = provider.getModel();
-		});
-		waitForSwing();
-
-		getActions();
 	}
 
 	@Test
@@ -222,13 +186,14 @@ public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTe
 		typeInCellEditor("Ab\bm");
 
 		// Bad value prevents action performed.
-		triggerActionKey(getTable(), 0, KeyEvent.VK_ENTER);
+		enter();
 		assertIsEditingField(2, model.getDataTypeColumn());
 
-		// Bad value allows escape.
-		triggerActionKey(getTable(), 0, KeyEvent.VK_ESCAPE);
-		triggerActionKey(getTable(), 0, KeyEvent.VK_ESCAPE);
+		assertTrue(model.getStatus().startsWith("Unrecognized data type"));
+
+		escape();
 		assertNotEditingField();
+
 		assertEquals(1, model.getNumSelectedRows());
 		assertEquals(2, model.getMinIndexSelected());
 		assertEquals(getDataType(2), dt);
@@ -250,8 +215,11 @@ public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTe
 		enter();
 
 		assertIsEditingField(2, column);
+		assertTrue(model.getStatus().startsWith("Unrecognized data type"));
 
 		escape();
+
+		assertNotEditingField();
 
 		assertEquals(1, model.getNumSelectedRows());
 		assertEquals(2, model.getMinIndexSelected());
@@ -259,9 +227,6 @@ public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTe
 		assertEquals(29, model.getLength());
 		assertEquals(dt, getDataType(2));
 
-		escape();
-		assertNotEditingField();
-		assertEquals(dt, getDataType(2));
 	}
 
 	@Test
@@ -273,6 +238,7 @@ public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTe
 
 		assertEquals(29, model.getLength());
 		assertEquals(2, dt.getLength());
+
 		clickTableCell(getTable(), 2, column, 2);
 		assertIsEditingField(2, column);
 
@@ -280,9 +246,12 @@ public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTe
 		enter();
 
 		assertIsEditingField(2, column);
-		escape();
+
+		assertTrue(model.getStatus().startsWith(str + " doesn't fit"));
+
 		escape();
 		assertNotEditingField();
+
 		assertEquals(1, model.getNumSelectedRows());
 		assertEquals(2, model.getMinIndexSelected());
 		assertCellString(dt.getDisplayName(), 2, column);
@@ -422,8 +391,8 @@ public class StructureEditorLockedCellEditTest extends AbstractStructureEditorTe
 		init(simpleStructure, pgmBbCat);
 
 		startTransaction("addExternal");
-		ExternalLocation extLoc = program.getExternalManager().addExtFunction(Library.UNKNOWN,
-			"extLabel", null, SourceType.USER_DEFINED);
+		ExternalLocation extLoc = program.getExternalManager()
+				.addExtFunction(Library.UNKNOWN, "extLabel", null, SourceType.USER_DEFINED);
 		Function function = extLoc.createFunction();
 		endTransaction(true);
 

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,13 +16,13 @@
 package ghidra.trace.model.time.schedule;
 
 import java.util.*;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
 import ghidra.pcode.emu.PcodeMachine;
 import ghidra.pcode.emu.PcodeThread;
+import ghidra.program.model.lang.Language;
 import ghidra.trace.model.Trace;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.trace.model.thread.TraceThreadManager;
@@ -122,7 +122,7 @@ public class Sequence implements Comparable<Sequence> {
 			return;
 		}
 		if (steps.isEmpty()) {
-			steps.add(step);
+			steps.add(step.clone());
 			return;
 		}
 		Step last = steps.get(steps.size() - 1);
@@ -155,6 +155,17 @@ public class Sequence implements Comparable<Sequence> {
 		}
 		advance(clone.get(1));
 		steps.addAll(clone.subList(2, size));
+	}
+
+	public void coalescePatches(Language language) {
+		if (steps.isEmpty()) {
+			return;
+		}
+		Step last = steps.get(steps.size() - 1);
+		long toRemove = last.coalescePatches(language, steps);
+		for (; toRemove > 0; toRemove--) {
+			steps.remove(steps.size() - 1);
+		}
 	}
 
 	/**
@@ -230,7 +241,7 @@ public class Sequence implements Comparable<Sequence> {
 	}
 
 	/**
-	 * Richly compare to sequences
+	 * Richly compare two sequences
 	 * 
 	 * <p>
 	 * The result indicates not only which is "less" or "greater" than the other, but also indicates
@@ -345,6 +356,14 @@ public class Sequence implements Comparable<Sequence> {
 		return count;
 	}
 
+	public long totalSkipCount() {
+		long count = 0;
+		for (Step step : steps) {
+			count += step.getSkipCount();
+		}
+		return count;
+	}
+
 	/**
 	 * Compute to total number of patches specified
 	 * 
@@ -369,17 +388,17 @@ public class Sequence implements Comparable<Sequence> {
 	 * @param trace the trace to which the machine is bound
 	 * @param eventThread the thread for the first step, if it applies to the "last thread"
 	 * @param machine the machine to step, or null to validate the sequence
-	 * @param action the action to step each thread
+	 * @param stepper the actions to step each thread
 	 * @param monitor a monitor for cancellation and progress reports
 	 * @return the last trace thread stepped during execution
 	 * @throws CancelledException if execution is cancelled
 	 */
-	public <T> TraceThread execute(Trace trace, TraceThread eventThread, PcodeMachine<T> machine,
-			Consumer<PcodeThread<T>> action, TaskMonitor monitor) throws CancelledException {
+	public TraceThread execute(Trace trace, TraceThread eventThread, PcodeMachine<?> machine,
+			Stepper stepper, TaskMonitor monitor) throws CancelledException {
 		TraceThreadManager tm = trace.getThreadManager();
 		TraceThread thread = eventThread;
 		for (Step step : steps) {
-			thread = step.execute(tm, thread, machine, action, monitor);
+			thread = step.execute(tm, thread, machine, stepper, monitor);
 		}
 		return thread;
 	}
@@ -410,5 +429,45 @@ public class Sequence implements Comparable<Sequence> {
 			return -1;
 		}
 		return steps.get(steps.size() - 1).getThreadKey();
+	}
+
+	/**
+	 * Collect all the threads involved in this sequence
+	 * 
+	 * @param into a set to collect the threads
+	 * @param trace the trace whose threads to collect
+	 * @param eventThread the default starting thread
+	 * @return the last thread named in the sequence
+	 */
+	public TraceThread collectThreads(Set<TraceThread> into, Trace trace, TraceThread eventThread) {
+		// TODO: Visitor pattern?
+		TraceThreadManager tm = trace.getThreadManager();
+		TraceThread thread = eventThread;
+		for (Step step : steps) {
+			into.add(thread);
+			thread = step.getThread(tm, eventThread);
+		}
+		return thread;
+	}
+
+	/**
+	 * Check if the first instruction step is actually to finish an incomplete instruction.
+	 * 
+	 * @param thread the thread whose instruction to potentially finish
+	 * @param machine a machine bound to the trace whose current state reflects the given position
+	 * @return if a finish was performed, this sequence with one initial step removed, i.e., a
+	 *         sequence representing the steps remaining
+	 */
+	Sequence checkFinish(TraceThread thread, PcodeMachine<?> machine) {
+		PcodeThread<?> emuThread = machine.getThread(thread.getPath(), true);
+		if (emuThread.getFrame() == null) {
+			return this;
+		}
+		Sequence result = new Sequence(new ArrayList<>(steps));
+		emuThread.finishInstruction();
+		if (result.steps.get(0).rewind(1) == 0) {
+			result.steps.remove(0);
+		}
+		return result;
 	}
 }

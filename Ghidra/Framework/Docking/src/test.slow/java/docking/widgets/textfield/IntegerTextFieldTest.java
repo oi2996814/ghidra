@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,16 +15,23 @@
  */
 package docking.widgets.textfield;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.math.BigInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
-import javax.swing.*;
+import javax.swing.JFrame;
+import javax.swing.JTextField;
+import javax.swing.UIManager;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
-import org.junit.*;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 import docking.test.AbstractDockingTest;
 
@@ -92,7 +99,7 @@ public class IntegerTextFieldTest extends AbstractDockingTest {
 		assertTrue(!field.isHexMode());
 		triggerText(textField, "x");
 		assertTrue(field.isHexMode());
-		triggerBackspaceKey(textField);
+		triggerBackspace(textField);
 		assertTrue(!field.isHexMode());
 	}
 
@@ -193,7 +200,7 @@ public class IntegerTextFieldTest extends AbstractDockingTest {
 		assertEquals(12, listener.values.get(1));
 		assertEquals(123, listener.values.get(2));
 
-		triggerBackspaceKey(textField);
+		triggerBackspace(textField);
 		assertEquals(12, listener.values.get(3));
 
 	}
@@ -269,6 +276,44 @@ public class IntegerTextFieldTest extends AbstractDockingTest {
 		assertEquals("ff", field.getText());
 		field.setAllowsHexPrefix(true);
 		assertEquals("0xff", field.getText());
+	}
+
+	@Test
+	public void testPastingBadText() {
+		field.setHexMode();
+		field.setValue(0);
+		assertFalse(field.setText("asdf 0x azzz"));
+	}
+
+	@Test
+	public void testSetText() {
+		field.setHexMode();
+		field.setValue(0);
+		assertTrue(field.setText("0x15"));
+		assertEquals(0x15, field.getIntValue());
+	}
+
+	@Test
+	public void testSetTextWithInvalidValue() {
+		field.setHexMode();
+		field.setValue(0);
+		assertFalse(field.setText("bad value"));
+		assertEquals(0, field.getIntValue());
+		assertTrue(field.isHexMode());
+	}
+
+	@Test
+	public void testSucessfulSetTextChangesHexMode() {
+		field.setHexMode();
+		field.setValue(0);
+		assertTrue(field.setText("33"));
+		assertEquals(33, field.getIntValue());
+		assertFalse(field.isHexMode());
+
+		assertTrue(field.setText("0x33"));
+		assertEquals(0x33, field.getIntValue());
+		assertTrue(field.isHexMode());
+
 	}
 
 	private void setHexMode() {

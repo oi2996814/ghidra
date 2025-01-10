@@ -26,6 +26,8 @@ import ghidra.util.exception.VersionException;
 class MemoryMapDBAdapterV1 extends MemoryMapDBAdapterV0 {
 	private final static int VERSION = 1;
 
+//  The following schema definition documents the schema used in version 1
+//
 //	private Schema SCHEMA = new Schema(VERSION, "Key", 
 //								new Class[] {StringField.class, 
 //								IntField.class, StringField.class,
@@ -43,9 +45,6 @@ class MemoryMapDBAdapterV1 extends MemoryMapDBAdapterV0 {
 //								"Source Block ID","Segment"});
 //
 
-	/**
-	 * @param handle
-	 */
 	MemoryMapDBAdapterV1(DBHandle handle, MemoryMapDB memMap) throws VersionException, IOException {
 		super(handle, memMap, VERSION);
 	}

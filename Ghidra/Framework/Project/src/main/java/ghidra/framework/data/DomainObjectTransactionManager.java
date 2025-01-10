@@ -16,9 +16,10 @@
 package ghidra.framework.data;
 
 import java.io.IOException;
-import java.util.LinkedList;
+import java.util.*;
 
 import ghidra.framework.model.*;
+import ghidra.framework.model.TransactionInfo.Status;
 import ghidra.util.Msg;
 import ghidra.util.SystemUtilities;
 import ghidra.util.datastruct.WeakDataStructureFactory;
@@ -26,10 +27,8 @@ import ghidra.util.datastruct.WeakSet;
 
 class DomainObjectTransactionManager extends AbstractTransactionManager {
 
-	private LinkedList<DomainObjectDBTransaction> undoList =
-		new LinkedList<>();
-	private LinkedList<DomainObjectDBTransaction> redoList =
-		new LinkedList<>();
+	private LinkedList<DomainObjectDBTransaction> undoList = new LinkedList<>();
+	private LinkedList<DomainObjectDBTransaction> redoList = new LinkedList<>();
 
 	private WeakSet<TransactionListener> transactionListeners =
 		WeakDataStructureFactory.createCopyOnWriteWeakSet();
@@ -90,12 +89,10 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 			if (domainObj.changeSet != null) {
 				domainObj.changeSet.endTransaction(!rollback);
 			}
-			domainObj.clearCache(false);
-		}
-
-		domainObj.fireEvent(new DomainObjectChangeRecord(DomainObject.DO_OBJECT_RESTORED));
-		if (notify) {
-			notifyEndTransaction();
+			domainObj.domainObjectRestored();
+			if (notify) {
+				notifyEndTransaction();
+			}
 		}
 	}
 
@@ -138,8 +135,8 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 	}
 
 	@Override
-	synchronized Transaction endTransaction(DomainObjectAdapterDB object, int transactionID,
-			boolean commit, boolean notify) {
+	synchronized TransactionInfo endTransaction(DomainObjectAdapterDB object, int transactionID,
+			boolean commit, boolean notify) throws IllegalStateException {
 		if (object != domainObj) {
 			throw new IllegalArgumentException("invalid domain object");
 		}
@@ -149,8 +146,8 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 		DomainObjectDBTransaction returnedTransaction = transaction;
 		try {
 			transaction.endEntry(transactionID, commit && !transactionTerminated);
-			int status = transaction.getStatus();
-			if (status == Transaction.COMMITTED) {
+			Status status = transaction.getStatus();
+			if (status == Status.COMMITTED) {
 				object.flushWriteCache();
 				boolean committed = domainObj.dbh.endTransaction(transaction.getID(), true);
 				if (committed) {
@@ -171,7 +168,7 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 				}
 				transaction = null;
 			}
-			else if (status == Transaction.ABORTED) {
+			else if (status == Status.ABORTED) {
 				object.invalidateWriteCache();
 				if (!transactionTerminated) {
 					domainObj.dbh.endTransaction(transaction.getID(), false);
@@ -179,13 +176,12 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 						domainObj.changeSet.endTransaction(false);
 					}
 				}
-				domainObj.clearCache(false);
+				domainObj.domainObjectRestored();
+				transaction.restoreToolStates(true);
+				transaction = null;
 				if (notify) {
 					notifyEndTransaction();
 				}
-				domainObj.fireEvent(new DomainObjectChangeRecord(DomainObject.DO_OBJECT_RESTORED));
-				transaction.restoreToolStates(true);
-				transaction = null;
 			}
 		}
 		catch (IOException e) {
@@ -225,7 +221,7 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 	@Override
 	synchronized String getRedoName() {
 		if (transaction == null && redoList.size() > 0) {
-			Transaction t = redoList.getLast();
+			TransactionInfo t = redoList.getLast();
 			return t.getDescription();
 		}
 		return "";
@@ -234,14 +230,33 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 	@Override
 	synchronized String getUndoName() {
 		if (transaction == null && undoList.size() > 0) {
-			Transaction t = undoList.getLast();
+			TransactionInfo t = undoList.getLast();
 			return t.getDescription();
 		}
 		return "";
 	}
 
 	@Override
-	Transaction getCurrentTransaction() {
+	List<String> getAllUndoNames() {
+		return getDescriptions(undoList);
+	}
+
+	@Override
+	List<String> getAllRedoNames() {
+		return getDescriptions(redoList);
+	}
+
+	private List<String> getDescriptions(List<DomainObjectDBTransaction> list) {
+		List<String> descriptions = new ArrayList<>();
+		for (DomainObjectDBTransaction tx : list) {
+			descriptions.add(tx.getDescription());
+		}
+		Collections.reverse(descriptions);
+		return descriptions;
+	}
+
+	@Override
+	TransactionInfo getCurrentTransactionInfo() {
 		return transaction;
 	}
 
@@ -254,8 +269,8 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 			if (domainObj.changeSet != null) {
 				domainObj.changeSet.redo();
 			}
-			domainObj.fireEvent(new DomainObjectChangeRecord(DomainObject.DO_OBJECT_RESTORED));
 			undoList.addLast(t);
+			domainObj.domainObjectRestored();
 			t.restoreToolStates(false);
 			if (notify) {
 				notifyUndoRedo();
@@ -272,9 +287,8 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 			if (domainObj.changeSet != null) {
 				domainObj.changeSet.undo();
 			}
-			domainObj.clearCache(false);
-			domainObj.fireEvent(new DomainObjectChangeRecord(DomainObject.DO_OBJECT_RESTORED));
 			redoList.addLast(t);
+			domainObj.domainObjectRestored();
 			t.restoreToolStates(true);
 			if (notify) {
 				notifyUndoRedo();
@@ -318,7 +332,7 @@ class DomainObjectTransactionManager extends AbstractTransactionManager {
 		transactionListeners.remove(listener);
 	}
 
-	void notifyStartTransaction(Transaction tx) {
+	void notifyStartTransaction(TransactionInfo tx) {
 		SystemUtilities.runSwingLater(() -> {
 			for (TransactionListener listener : transactionListeners) {
 				listener.transactionStarted(domainObj, tx);

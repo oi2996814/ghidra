@@ -1,5 +1,6 @@
 ##VERSION: 2.0
 Module.manifest||GHIDRA||||END|
+README.md||GHIDRA||||END|
 data/languages/RV32G.pspec||GHIDRA||||END|
 data/languages/RV32GC.pspec||GHIDRA||||END|
 data/languages/RV32I.pspec||GHIDRA||||END|
@@ -46,5 +47,5 @@ data/languages/riscv32.dwarf||GHIDRA||||END|
 data/languages/riscv64-fp.cspec||GHIDRA||||END|
 data/languages/riscv64.cspec||GHIDRA||||END|
 data/languages/riscv64.dwarf||GHIDRA||||END|
-data/patterns/patterncontraints.xml||GHIDRA||||END|
+data/patterns/patternconstraints.xml||GHIDRA||||END|
 data/patterns/riscv_gc_patterns.xml||GHIDRA||||END|
