@@ -24,12 +24,10 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.event.*;
 
-import org.apache.commons.lang3.StringUtils;
-
 import docking.*;
 import docking.action.*;
 import docking.widgets.EmptyBorderButton;
-import docking.widgets.label.GDHtmlLabel;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.util.Swing;
 import resources.ResourceManager;
 
@@ -43,16 +41,16 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 	private static int ARROW_PADDING = 4;
 
 	private PopupMouseListener popupListener;
+	private JPopupMenu popupMenu;
 	private Shape popupContext;
+	private long popupLastClosedTime;
 
 	private final MultiActionDockingActionIf multipleAction;
-	private boolean iconBorderEnabled = true;
-	private boolean entireButtonShowsPopupMenu;
 
 	public MultipleActionDockingToolbarButton(MultiActionDockingActionIf action) {
 		multipleAction = action;
 		installMouseListeners();
-		setIcon(ResourceManager.loadImage("images/core.png"));
+		setIcon(ResourceManager.getDefaultIcon());
 	}
 
 	@Override
@@ -74,21 +72,6 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 		return disabledIcon;
 	}
 
-	/**
-	 * By default a click on this button will trigger <code>actionPerformed()</code> to be called.
-	 * You can call this method to disable that feature.  When called with <code>false</code>, this
-	 * method will effectively let the user click anywhere on the button or its drop-down arrow
-	 * to show the popup menu.  During normal operation, the user can only show the popup by
-	 * clicking the drop-down arrow.
-	 * 
-	 * @param performActionOnButtonClick true to perform the action when the button is clicked
-	 */
-	public void setPerformActionOnButtonClick(boolean performActionOnButtonClick) {
-		entireButtonShowsPopupMenu = !performActionOnButtonClick;
-		iconBorderEnabled = performActionOnButtonClick;
-		popupContext = createPopupContext();
-	}
-
 	@Override
 	protected void paintBorder(Graphics g) {
 		Border buttonBorder = getBorder();
@@ -98,10 +81,7 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 
 		Insets borderInsets = buttonBorder.getBorderInsets(this);
 		int leftIconWidth = primaryIcon.getIconWidth() + (borderInsets.left + borderInsets.right);
-		if (iconBorderEnabled) {
-			buttonBorder.paintBorder(this, g, 0, 0, leftIconWidth, getHeight());
-		}
-
+		buttonBorder.paintBorder(this, g, 0, 0, leftIconWidth, getHeight());
 		int rightButtonWidth =
 			ARROW_WIDTH + ARROW_PADDING + (borderInsets.left + borderInsets.right);
 		buttonBorder.paintBorder(this, g, leftIconWidth, 0, rightButtonWidth, getHeight());
@@ -112,6 +92,16 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 		disabledIcon = ResourceManager.getDisabledIcon(newIcon);
 		super.setIcon(newIcon);
 		popupContext = createPopupContext();
+	}
+
+	@Override
+	public void updateUI() {
+
+		removeMouseListener(popupListener);
+
+		super.updateUI();
+
+		installMouseListeners();
 	}
 
 	private void installMouseListeners() {
@@ -132,10 +122,6 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 	}
 
 	private Shape createPopupContext() {
-		if (entireButtonShowsPopupMenu) {
-			return new Rectangle(0, 0, getWidth(), getHeight());
-		}
-
 		Border buttonBorder = getBorder();
 		Insets borderInsets =
 			buttonBorder == null ? new Insets(0, 0, 0, 0) : buttonBorder.getBorderInsets(this);
@@ -146,10 +132,10 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 		return new Rectangle(leftIconWidth, 0, rightButtonWidth, height);
 	}
 
-	private ActionContext getActionContext() {
+	protected ActionContext getActionContext() {
 		ComponentProvider provider = getComponentProvider();
 		ActionContext context = provider == null ? null : provider.getActionContext(null);
-		final ActionContext actionContext = context == null ? new ActionContext() : context;
+		final ActionContext actionContext = context == null ? new DefaultActionContext() : context;
 		return actionContext;
 	}
 
@@ -161,31 +147,57 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 		return manager.getActiveComponentProvider();
 	}
 
-	/** 
+	/**
 	 * Show a popup containing all the actions below the button
-	 * @param listener for the created popup menu
+	 * 
 	 * @return the popup menu that was shown
 	 */
-	JPopupMenu showPopup(PopupMenuListener listener) {
+	protected JPopupMenu showPopup() {
+
+		if (popupIsShowing()) {
+			popupMenu.setVisible(false);
+			return null;
+		}
+
+		//
+		// showPopup() will handled 2 cases when this action's button is clicked:
+		// 1) show a popup if it was not showing
+		// 2) hide the popup if it was showing
+		//
+		// Case 2 requires timestamps.  Java will close the popup as the button is clicked. This
+		// means that when we are told to show the popup as the result of a click, the popup will
+		// never be showing.  To work around this, we track the elapsed time since last click.  If
+		// the period is too short, then we assume Java closed the popup when the click happened
+		//and thus we should ignore it.
+		//
+		long elapsedTime = System.currentTimeMillis() - popupLastClosedTime;
+		if (elapsedTime < 500) { // somewhat arbitrary time window
+			return null;
+		}
+
+		JPopupMenu menu = doCreateMenu();
+
+		menu.addPopupMenuListener(popupListener);
+		Point p = getPopupPoint();
+		menu.show(this, p.x, p.y);
+		return menu;
+	}
+
+	protected JPopupMenu doCreateMenu() {
+
 		JPopupMenu menu = new JPopupMenu();
 		List<DockingActionIf> actionList = multipleAction.getActionList(getActionContext());
 		for (DockingActionIf dockingAction : actionList) {
 
-			String[] menuPath = dockingAction.getMenuBarData().getMenuPath();
-			String name = menuPath[menuPath.length - 1];
-
-			// this is a special signal to say we should insert a separator and not a real menu item
-			if (!dockingAction.isEnabled()) {
-				String description = dockingAction.getDescription();
-				JSeparator separator = new ProgramNameSeparator(name, description);
-				menu.add(separator);
+			Component component = dockingAction.createMenuComponent(false);
+			if (!(component instanceof JMenuItem item)) {
+				// not an actual item, e.g., a separator as in HorizontalRuleAction
+				menu.add(component);
 				continue;
 			}
 
-			JMenuItem item = dockingAction.createMenuItem(false);
-
 			// a custom Ghidra UI that handles alignment issues and allows for tabulating presentation
-			item.setUI((DockingMenuItemUI) DockingMenuItemUI.createUI(item));
+			item.setUI(DockingMenuItemUI.createUI(item));
 			final DockingActionIf delegateAction = dockingAction;
 			item.addActionListener(e -> {
 				ActionContext context = getActionContext();
@@ -201,18 +213,16 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 
 			menu.add(item);
 		}
-
-		if (listener != null) {
-			menu.addPopupMenuListener(listener);
-		}
-		Point p = getPopupPoint();
-		menu.show(this, p.x, p.y);
 		return menu;
 	}
 
 	public Point getPopupPoint() {
 		Rectangle bounds = getBounds();
 		return new Point(0, bounds.y + bounds.height);
+	}
+
+	private boolean popupIsShowing() {
+		return (popupMenu != null) && popupMenu.isVisible();
 	}
 
 //==================================================================================================
@@ -250,7 +260,7 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 				return; // shouldn't happen
 			}
 
-			g.setColor(Color.BLACK);
+			g.setColor(Colors.FOREGROUND);
 			int iconWidth = baseIcon.getIconWidth();
 			int iconHeight = baseIcon.getIconHeight();
 			int insetsPadding = insets.left + insets.right; // the insets of the left icon and the arrow (between the two)
@@ -285,8 +295,6 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 
 	private class PopupMouseListener extends MouseAdapter implements PopupMenuListener {
 		private final MouseListener[] parentListeners;
-		private JPopupMenu popupMenu;
-		private long actionID = 0; // used to determine when the popup was closed by clicking the button 
 
 		public PopupMouseListener(MouseListener[] parentListeners) {
 			this.parentListeners = parentListeners;
@@ -294,16 +302,6 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 
 		@Override
 		public void mousePressed(MouseEvent e) {
-			// close the popup if the user clicks the button while the popup is visible
-			if (popupIsShowing() && e.getClickCount() == 1) { // ignore double-click when the menu is up
-				popupMenu.setVisible(false);
-				return;
-			}
-
-			long eventTime = System.currentTimeMillis();
-			if (actionID == eventTime) {
-				return;
-			}
 
 			Point clickPoint = e.getPoint();
 			if (isEnabled() && popupContext.contains(clickPoint)) {
@@ -311,8 +309,8 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 				// Unusual Code Alert: we need to put this call in an invoke later, since Java
 				// will update the focused window after we click.  We need the focus to be
 				// correct before we show, since our menu is built with actions based upon the
-				// focused dude.
-				Swing.runLater(() -> popupMenu = showPopup(PopupMouseListener.this));
+				// focused component.
+				Swing.runLater(() -> popupMenu = showPopup());
 
 				e.consume();
 				model.setPressed(false);
@@ -372,10 +370,6 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 			}
 		}
 
-		private boolean popupIsShowing() {
-			return (popupMenu != null) && popupMenu.isVisible();
-		}
-
 		@Override
 		public void popupMenuCanceled(PopupMenuEvent e) {
 			// no-op
@@ -383,7 +377,7 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 
 		@Override
 		public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
-			actionID = System.currentTimeMillis(); // hacktastic!
+			popupLastClosedTime = System.currentTimeMillis();
 		}
 
 		@Override
@@ -419,95 +413,4 @@ public class MultipleActionDockingToolbarButton extends EmptyBorderButton {
 
 	}
 
-	private static class ProgramNameSeparator extends JSeparator {
-
-		private final int EMTPY_SEPARATOR_HEIGHT = 10;
-		private final int TEXT_SEPARATOR_HEIGHT = 32;
-		private JLabel renderer = new GDHtmlLabel();
-
-		private int separatorHeight = EMTPY_SEPARATOR_HEIGHT;
-
-		private ProgramNameSeparator(String name, String description) {
-			setBorder(BorderFactory.createEmptyBorder(20, 0, 20, 0));
-			renderer.setText(name);
-			DockingUtils.setTransparent(renderer);
-			renderer.setHorizontalAlignment(SwingConstants.CENTER);
-			renderer.setVisible(true);
-
-			if (!StringUtils.isBlank(name)) {
-				separatorHeight = TEXT_SEPARATOR_HEIGHT;
-			}
-
-// IF WE CHOOSE TO SHOW TOOLTIPS (and below too)...
-//            setToolTipText( description );
-		}
-
-		@Override
-		protected void paintComponent(Graphics g) {
-			Dimension d = getSize();
-
-			// some edge padding, for classiness
-			int pad = 10;
-			int center = separatorHeight >> 1;
-			int x = 0 + pad;
-			int y = center;
-			int w = d.width - pad;
-			g.setColor(getForeground());
-			g.drawLine(x, y, w, y);
-
-			// drop-shadow
-			g.setColor(getBackground());
-			g.drawLine(x, (y + 1), w, (y + 1));
-
-			// now add our custom text
-			renderer.setSize(getSize());
-			renderer.paint(g);
-		}
-
-		@Override
-		public Dimension getPreferredSize() {
-			// assume horizontal
-			return new Dimension(0, separatorHeight);
-		}
-
-		@Override
-		public Dimension getMinimumSize() {
-			return new Dimension(0, separatorHeight);
-		}
-
-//
-// USE THE CODE BELOW IF WE WANT TOOLTIPS
-//
-//          @Override
-//        public String getToolTipText( MouseEvent event ) {
-//            // We only want to show the tooltip when the user is over the label.  Since the label
-//            // is not on the screen, we cannot ask it if the mouse location is within its bounds.
-//            Dimension labelSize = renderer.getPreferredSize();
-//            if ( labelSize.height == 0 && labelSize.width == 0 ) {
-//                return null;
-//            }
-//
-//            Dimension mySize = getSize();
-//            int centerX = mySize.width >> 1;
-//
-//            int labelMidPoint = labelSize.width >> 1;
-//            int labelStartX = centerX - labelMidPoint;
-//            int labelEndX = centerX + labelMidPoint;
-//
-//            Point mousePoint = event.getPoint();
-//            boolean insideLabel = (mousePoint.x >= labelStartX) && (mousePoint.x <= labelEndX);
-//            if ( !insideLabel ) {
-//                return null;
-//            }
-//            return getToolTipText();
-//        }
-//
-//        @Override
-//        public Point getToolTipLocation( MouseEvent event ) {
-//            Rectangle bounds = getBounds();
-//            bounds.x += bounds.width;
-//            bounds.y = 0;
-//            return bounds.getLocation();
-//        }
-	}
 }

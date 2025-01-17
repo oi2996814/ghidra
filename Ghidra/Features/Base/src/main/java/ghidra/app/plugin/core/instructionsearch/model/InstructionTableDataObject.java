@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,6 +22,8 @@ import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.border.Border;
 
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.app.plugin.core.instructionsearch.ui.AbstractInstructionTable.OperandState;
 import ghidra.app.plugin.core.instructionsearch.ui.InstructionTable;
 
@@ -42,37 +44,40 @@ public class InstructionTableDataObject {
 	 * This is static since all data objects will have the same list of
 	 * observers
 	 */
-	private Set<InstructionTableObserver> observers = new HashSet<InstructionTableObserver>();
+	private Set<InstructionTableObserver> observers = new HashSet<>();
 
 	// The text displayed in the cell.
 	private String data;
 
 	// Some cell attributes.
 	private Color backgroundColor;
-	private Color foregroundColor;
-	private int fontStyle;
+	private Color foregroundColor = Colors.FOREGROUND;
 
-	// The border style of the cell.  This is used to facilitate the 3D look of the 
-	// cells (bevel-styling).
+	// The border style of the cell.  This is used to facilitate the 3D look of the  cells 
+	// (bevel-styling).
 	private Border border;
 
-	// The state of the object; this describes whether the cell is in a masked or
-	// unmasked state, or neither (NA).
+	// The state of the object; this describes whether the cell is in a masked or unmasked state, 
+	// or neither (NA).
 	private OperandState state;
 
-	// True if this data object represents an instruction (and not an undefined data item or
-	// string).
+	// True if this data object represents an instruction (and not an undefined data).
 	private boolean isInstruction;
 
 	// Stores information about the operand for this cell (if it's an operand); if the
 	// cell represents a mnemonic then this does not apply.
 	private OperandMetadata operandCase;
 
-	private static final Color BACKGROUND_COLOR = new Color(237, 243, 254);
-	private static final Color BACKGROUND_COLOR_DARKER = new Color(188, 212, 254);
-	private static final Color BACKGROUND_COLOR_NON_INSTRUCTION = new Color(255, 242, 214);
-	private static final Color BACKGROUND_COLOR_DARKER_NON_INSTRUCTION = new Color(203, 186, 150);
-	private static final Color PANEL_COLOR = new Color(214, 217, 223);
+	private static final Color BG_COLOR_MASKED_INSTRUCTION =
+		new GColor("color.bg.plugin.instructionsearch.table.masked.instruction");
+	private static final Color BG_COLOR_NOT_MASKED_INSTRUCTION =
+		new GColor("color.bg.plugin.instructionsearch.table.not.masked.instruction");
+	private static final Color BG_COLOR_MASKED_NON_INSTRUCTION =
+		new GColor("color.bg.plugin.instructionsearch.table.masked.non.instruction");
+	private static final Color BG_COLOR_NOT_MASKED_NON_INSTRUCTION =
+		new GColor("color.bg.plugin.instructionsearch.table.not.masked.non.instruction");
+	private static final Color BG_COLOR_DEFAULT =
+		new GColor("color.bg.plugin.instructionsearch.table.default");
 
 	/**
 	 * Constructor.
@@ -124,22 +129,20 @@ public class InstructionTableDataObject {
 		switch (state) {
 			case MASKED:
 				backgroundColor =
-					isInstruction ? BACKGROUND_COLOR : BACKGROUND_COLOR_NON_INSTRUCTION;
-				foregroundColor = Color.BLACK;
+					isInstruction ? BG_COLOR_MASKED_INSTRUCTION : BG_COLOR_MASKED_NON_INSTRUCTION;
 				border = BorderFactory.createLoweredSoftBevelBorder();
 				break;
 			case NOT_MASKED:
-				backgroundColor = isInstruction ? BACKGROUND_COLOR_DARKER
-						: BACKGROUND_COLOR_DARKER_NON_INSTRUCTION;
-				foregroundColor = Color.BLACK;
+				backgroundColor = isInstruction ? BG_COLOR_NOT_MASKED_INSTRUCTION
+						: BG_COLOR_NOT_MASKED_NON_INSTRUCTION;
 				border = BorderFactory.createRaisedSoftBevelBorder();
 				break;
 			case NA:
-				backgroundColor = PANEL_COLOR;
+				backgroundColor = BG_COLOR_DEFAULT;
 				break;
 			case PREVIEW:
 				backgroundColor =
-					isInstruction ? BACKGROUND_COLOR : BACKGROUND_COLOR_NON_INSTRUCTION;
+					isInstruction ? BG_COLOR_MASKED_INSTRUCTION : BG_COLOR_MASKED_NON_INSTRUCTION;
 				break;
 		}
 
@@ -148,9 +151,6 @@ public class InstructionTableDataObject {
 		}
 	}
 
-	/**
-	 * Subscribes the given observer to be notified of changes to this object.
-	 */
 	public void register(InstructionTableObserver observer) {
 		observers.add(observer);
 	}
@@ -169,10 +169,6 @@ public class InstructionTableDataObject {
 
 	public Color getForegroundColor() {
 		return foregroundColor;
-	}
-
-	public int getFontStyle() {
-		return fontStyle;
 	}
 
 	public OperandState getState() {

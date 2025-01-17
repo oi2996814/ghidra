@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 package ghidra.app.plugin.core.references;
+
+import static ghidra.framework.main.DataTreeDialogType.*;
 
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
@@ -71,6 +73,7 @@ class EditExternalReferencePanel extends EditReferencePanel {
 
 		topPanel.add(new GLabel("Name:", SwingConstants.RIGHT));
 		extLibName = new GhidraComboBox<>();
+		extLibName.getAccessibleContext().setAccessibleDescription("Choose external program name");
 		extLibName.setEditable(true);
 		extLibName.addDocumentListener(new DocumentListener() {
 			@Override
@@ -136,10 +139,12 @@ class EditExternalReferencePanel extends EditReferencePanel {
 
 		bottomPanel.add(new GLabel("Label:", SwingConstants.RIGHT));
 		extLabel = new JTextField();
+		extLabel.getAccessibleContext().setAccessibleName("External Label");
 		bottomPanel.add(extLabel);
 
 		bottomPanel.add(new GLabel("Address:", SwingConstants.RIGHT));
 		extAddr = new AddressInput();
+		extAddr.getAccessibleContext().setAccessibleName("External Address");
 		bottomPanel.add(extAddr);
 
 		setLayout(new VerticalLayout(5));
@@ -160,11 +165,11 @@ class EditExternalReferencePanel extends EditReferencePanel {
 		extLibName.clearModel();
 		extLibName.addItem(Library.UNKNOWN);
 		Arrays.sort(names);
-		for (int i = 0; i < names.length; i++) {
-			if (Library.UNKNOWN.equals(extLibName)) {
+		for (String name : names) {
+			if (Library.UNKNOWN.equals(name)) {
 				continue;
 			}
-			extLibName.addItem(names[i]);
+			extLibName.addItem(name);
 		}
 	}
 
@@ -183,7 +188,7 @@ class EditExternalReferencePanel extends EditReferencePanel {
 	 */
 	private void popupProgramChooser() {
 		DataTreeDialog d =
-			new DataTreeDialog(this.getParent(), "Choose External Program", DataTreeDialog.OPEN);
+			new DataTreeDialog(this.getParent(), "Choose External Program", OPEN);
 		final DataTreeDialog dialog = d;
 		d.addOkActionListener(new ActionListener() {
 			@Override
@@ -226,7 +231,7 @@ class EditExternalReferencePanel extends EditReferencePanel {
 		updateExtLibPath();
 
 		extLabel.setText(extLoc.getLabel());
-		extAddr.setAddressFactory(program.getAddressFactory());
+		extAddr.setProgram(program);
 		Address addr = extLoc.getAddress();
 		if (addr != null) {
 			extAddr.setAddress(addr);
@@ -255,7 +260,7 @@ class EditExternalReferencePanel extends EditReferencePanel {
 		extLibPath.setText(null);
 
 		extLabel.setText(null);
-		extAddr.setAddressFactory(program.getAddressFactory());
+		extAddr.setProgram(program);
 		extAddr.clear();
 
 		extLibName.requestFocus();

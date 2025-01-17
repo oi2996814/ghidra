@@ -15,17 +15,19 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
+import java.io.IOException;
+import java.io.Writer;
+
 /**
- * This class is the version of {@link AbstractSectionContribution} for Microsoft v2.00 PDB.
+ * This class is the version of {@link SectionContribution} for Microsoft v2.00 PDB.
  */
-public class SectionContribution200 extends AbstractSectionContribution {
+public class SectionContribution200 extends SectionContribution {
 
 	//==============================================================================================
 	// Abstract Methods
 	//==============================================================================================
 	@Override
 	void deserialize(PdbByteReader reader) throws PdbException {
-		//System.out.println(reader.dump());
 		isect = reader.parseUnsignedShortVal();
 		offset = reader.parseInt();
 		length = reader.parseInt();
@@ -33,17 +35,12 @@ public class SectionContribution200 extends AbstractSectionContribution {
 	}
 
 	@Override
-	String dumpInternals() {
-		StringBuilder builder = new StringBuilder();
-		builder.append("isect: ");
-		builder.append(isect);
-		builder.append("\noffset: ");
-		builder.append(offset);
-		builder.append("\nlength: ");
-		builder.append(length);
-		builder.append("\nimod: ");
-		builder.append(imod);
-		return builder.toString();
+	void dumpInternals(Writer writer) throws IOException {
+		writer.write("isect: " + isect);
+		writer.write("\noffset: " + offset);
+		writer.write("\nlength: " + length);
+		writer.write("\nimod: " + imod);
+		writer.write("\n");
 	}
 
 }

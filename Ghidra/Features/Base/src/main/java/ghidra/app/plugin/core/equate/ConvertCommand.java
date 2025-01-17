@@ -24,9 +24,9 @@ import ghidra.app.context.ListingActionContext;
 import ghidra.docking.settings.FormatSettingsDefinition;
 import ghidra.docking.settings.Settings;
 import ghidra.framework.cmd.BackgroundCommand;
-import ghidra.framework.model.DomainObject;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.data.*;
+import ghidra.program.model.data.AbstractIntegerDataType;
+import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.Equate;
@@ -35,7 +35,7 @@ import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.task.TaskMonitor;
 
-public class ConvertCommand extends BackgroundCommand {
+public class ConvertCommand extends BackgroundCommand<Program> {
 	private Program program;
 	private AbstractConvertAction action;
 	private ListingActionContext context;
@@ -65,7 +65,7 @@ public class ConvertCommand extends BackgroundCommand {
 	}
 
 	@Override
-	public boolean applyTo(DomainObject obj, TaskMonitor monitor) {
+	public boolean applyTo(Program program, TaskMonitor monitor) {
 
 		try {
 			CodeUnit cu = action.plugin.getCodeUnit(context);
@@ -80,7 +80,8 @@ public class ConvertCommand extends BackgroundCommand {
 
 			Instruction instruction = (Instruction) context.getCodeUnit();
 			int opIndex = action.plugin.getOperandIndex(context);
-			msg = applyEquate(instruction, opIndex);
+			int subOpIndex = action.plugin.getSubOperandIndex(context);
+			msg = applyEquate(instruction, opIndex, subOpIndex);
 		}
 		catch (Exception e) {
 			msg = "Exception applying the Convert: " + e.getMessage();
@@ -89,8 +90,7 @@ public class ConvertCommand extends BackgroundCommand {
 		return msg == null;
 	}
 
-	private boolean applyDataSettings(Data data)
-			throws CodeUnitInsertionException, DataTypeConflictException {
+	private boolean applyDataSettings(Data data) throws CodeUnitInsertionException {
 
 		DataType dt = data.getBaseDataType();
 		Settings settings = data;
@@ -130,7 +130,7 @@ public class ConvertCommand extends BackgroundCommand {
 	}
 
 	private void createData(Data data, DataType unsignedDataType)
-			throws CodeUnitInsertionException, DataTypeConflictException {
+			throws CodeUnitInsertionException {
 		Listing listing = data.getProgram().getListing();
 		Address addr = data.getAddress();
 		listing.clearCodeUnits(addr, data.getMaxAddress(), false);
@@ -142,7 +142,7 @@ public class ConvertCommand extends BackgroundCommand {
 		String errorMessage = null;
 		for (Instruction instruction : it) {
 			for (int i = 0; i < instruction.getNumOperands(); i++) {
-				String m = applyEquate(instruction, i);
+				String m = applyEquate(instruction, i, 0);
 				if (errorMessage == null && m != null) {
 					errorMessage = m;
 				}
@@ -155,12 +155,12 @@ public class ConvertCommand extends BackgroundCommand {
 	 * Create a new equate. If already created with a different value, then we can't do anything. 
 	 * If equate name is null, i.e. selection is not letter or digit, then do nothing
 	 */
-	private String applyEquate(Instruction instruction, int opIndex) {
+	private String applyEquate(Instruction instruction, int opIndex, int subOpIndex) {
 		if (instruction == null || opIndex == -1) {
 			return null;
 		}
 
-		Scalar scalar = grabMatchingScalar(instruction, opIndex);
+		Scalar scalar = grabMatchingScalar(instruction, opIndex, subOpIndex);
 		if (scalar == null) {
 			return null;
 		}
@@ -210,12 +210,13 @@ public class ConvertCommand extends BackgroundCommand {
 	 * Gets a scalar that matches the value of the scalar at the cursor location.
 	 * @param instruction The instruction to search
 	 * @param opIndex The operand index to look at
+	 * @param subOpIndex the sub operand index
 	 * @return A scalar that matches the value of the scalar at the cursor location, or null if no
 	 * such scalar can be found.
 	 */
-	private Scalar grabMatchingScalar(Instruction instruction, int opIndex) {
+	private Scalar grabMatchingScalar(Instruction instruction, int opIndex, int subOpIndex) {
 		Scalar scalarAtCursor = action.plugin.getScalar(context);
-		Scalar scalar = instruction.getScalar(opIndex);
+		Scalar scalar = action.plugin.getScalar(instruction, opIndex, subOpIndex);
 
 		if (scalarAtCursor.equals(scalar)) {
 			return scalar;

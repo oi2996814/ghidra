@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,35 +15,45 @@
  */
 package ghidra.app.util.viewer.listingpanel;
 
-import ghidra.program.util.MarkerLocation;
-
 import javax.swing.JComponent;
 
+import ghidra.app.util.viewer.util.AddressIndexMap;
+import ghidra.program.model.listing.Program;
+import ghidra.program.util.MarkerLocation;
+
 /**
- * Interface for objects that want to add a component to the listings left margin.
+ * Interface for objects that want to add a component to the listing's left margin.
  */
 public interface MarginProvider {
 
 	/**
 	 * Get the component to show the margin markers.
+	 * @return the component
 	 */
 	JComponent getComponent();
 
 	/**
-	 * Return whether the component can be resized.
+	 * Return true if can be resized.
+	 * @return true if can be resized.
 	 */
 	boolean isResizeable();
 
 	/**
-	 * Set the vertical pixel layout map.
-	 * @param pixmap the vertical pixel map to use.
+	 * Set the program and associated maps.
+	 * 
+	 * @param program the program to use.
+	 * @param addressIndexMap the address-index map to use.
+	 * @param pixelMap the vertical pixel map to use.
 	 */
-	void setPixelMap(VerticalPixelAddressMap pixmap);
-		
+	void setProgram(Program program, AddressIndexMap addressIndexMap,
+			VerticalPixelAddressMap pixelMap);
+
 	/**
 	 * Get the marker location for the given x, y point.
+	 * 
 	 * @param x the horizontal coordinate.
 	 * @param y the vertical coordinate.
+	 * @return the location
 	 */
 	public MarkerLocation getMarkerLocation(int x, int y);
 

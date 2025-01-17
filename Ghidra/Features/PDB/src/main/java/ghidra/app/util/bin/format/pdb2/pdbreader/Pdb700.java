@@ -18,7 +18,7 @@ package ghidra.app.util.bin.format.pdb2.pdbreader;
 import java.io.IOException;
 import java.io.Writer;
 
-import ghidra.app.util.bin.format.pdb2.pdbreader.msf.AbstractMsf;
+import ghidra.app.util.bin.format.pdb2.pdbreader.msf.Msf;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
@@ -31,20 +31,20 @@ public class Pdb700 extends AbstractPdb {
 	// Package-Protected Internals
 	//==============================================================================================
 	/**
-	 * Constructor.
-	 * @param msf {@link AbstractMsf} foundation for the PDB.
-	 * @param pdbOptions {@link PdbReaderOptions} used for processing the PDB.
-	 * @throws IOException Upon file IO seek/read issues.
-	 * @throws PdbException Upon unknown value for configuration or error in processing components.
+	 * Constructor
+	 * @param msf {@link Msf} foundation for the PDB
+	 * @param pdbOptions {@link PdbReaderOptions} used for processing the PDB
+	 * @throws IOException upon file IO seek/read issues
+	 * @throws PdbException upon unknown value for configuration or error in processing components
 	 */
-	Pdb700(AbstractMsf msf, PdbReaderOptions pdbOptions) throws IOException, PdbException {
+	Pdb700(Msf msf, PdbReaderOptions pdbOptions) throws IOException, PdbException {
 		super(msf, pdbOptions);
 	}
 
 	@Override
 	void deserializeIdentifiersOnly(TaskMonitor monitor)
 			throws IOException, PdbException, CancelledException {
-		PdbByteReader reader = getDirectoryReader(monitor);
+		PdbByteReader reader = getDirectoryReader();
 		deserializeVersionSignatureAge(reader);
 		guid = reader.parseGUID();
 	}
@@ -53,40 +53,22 @@ public class Pdb700 extends AbstractPdb {
 	// Abstract Methods
 	//==============================================================================================
 	@Override
-	void deserializeDirectory(TaskMonitor monitor)
-			throws IOException, PdbException, CancelledException {
-		PdbByteReader reader = getDirectoryReader(monitor);
+	void deserializeDirectory() throws IOException, PdbException, CancelledException {
+		PdbByteReader reader = getDirectoryReader();
 		deserializeVersionSignatureAge(reader);
 		guid = reader.parseGUID();
-		deserializeParameters(reader, monitor);
+		deserializeParameters(reader);
 	}
 
 	@Override
-	public void dumpDirectory(Writer writer) throws IOException {
-		StringBuilder builder = new StringBuilder();
-		builder.append(dumpVersionSignatureAge());
-		builder.append("\n");
-		builder.append(dumpGUID());
-		builder.append("\n");
-		builder.append(dumpParameters());
-		writer.write(builder.toString());
-	}
-
-	//==============================================================================================
-	// Internal Data Methods
-	//==============================================================================================
-	/**
-	 * Dumps the GUID.  This method is for debugging only.
-	 * @return {@link String} of pretty output.
-	 */
-	protected String dumpGUID() {
-		if (guid == null) {
-			return "";
+	public void dumpDirectory(Writer writer) throws IOException, CancelledException {
+		dumpVersionSignatureAge(writer);
+		writer.write("\n");
+		if (guid != null) {
+			writer.write("GUID: " + guid);
+			writer.write("\n");
 		}
-		StringBuilder builder = new StringBuilder();
-		builder.append("GUID: ");
-		builder.append(guid);
-		return builder.toString();
+		dumpParameters(writer, getMonitor());
 	}
 
 }

@@ -17,17 +17,80 @@ package ghidra.app.decompiler.component;
 
 import java.util.*;
 
+import docking.options.OptionsService;
 import docking.widgets.fieldpanel.field.Field;
 import docking.widgets.fieldpanel.support.*;
+import ghidra.GhidraOptions;
 import ghidra.app.decompiler.*;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
+import ghidra.framework.options.ToolOptions;
+import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.Program;
+import ghidra.program.model.data.MetaDataType;
+import ghidra.program.model.listing.*;
 import ghidra.program.model.pcode.*;
 
 public class DecompilerUtils {
+
+	/**
+	 * Gather decompiler options from tool and program.  If tool is null or does not provide
+	 * a {@link OptionsService} provider only options stored within the program will be consumed.
+	 * @param serviceProvider plugin tool or service provider providing access to 
+	 * {@link OptionsService}
+	 * @param program program
+	 * @return decompiler options
+	 */
+	public static DecompileOptions getDecompileOptions(ServiceProvider serviceProvider,
+			Program program) {
+		DecompileOptions options;
+		options = new DecompileOptions();
+		OptionsService service = null;
+		if (serviceProvider != null) {
+			service = serviceProvider.getService(OptionsService.class);
+		}
+		if (service != null) {
+			ToolOptions opt = service.getOptions("Decompiler");
+			ToolOptions fieldOptions = service.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
+			options.grabFromToolAndProgram(fieldOptions, opt, program);
+		}
+		else {
+			options.grabFromProgram(program);
+		}
+		return options;
+	}
+
+	/**
+	 * Get the data-type associated with a Varnode.  If the Varnode is input to a CAST p-code
+	 * op, take the most specific data-type between what it was cast from and cast to.
+	 * @param vn is the Varnode to get the data-type for
+	 * @return the data-type
+	 */
+	public static DataType getDataTypeTraceForward(Varnode vn) {
+		DataType res = vn.getHigh().getDataType();
+		PcodeOp op = vn.getLoneDescend();
+		if (op != null && op.getOpcode() == PcodeOp.CAST) {
+			Varnode otherVn = op.getOutput();
+			res = MetaDataType.getMostSpecificDataType(res, otherVn.getHigh().getDataType());
+		}
+		return res;
+	}
+
+	/**
+	 * Get the data-type associated with a Varnode.  If the Varnode is produce by a CAST p-code
+	 * op, take the most specific data-type between what it was cast from and cast to.
+	 * @param vn is the Varnode to get the data-type for
+	 * @return the data-type
+	 */
+	public static DataType getDataTypeTraceBackward(Varnode vn) {
+		DataType res = vn.getHigh().getDataType();
+		PcodeOp op = vn.getDef();
+		if (op != null && op.getOpcode() == PcodeOp.CAST) {
+			Varnode otherVn = op.getInput(0);
+			res = MetaDataType.getMostSpecificDataType(res, otherVn.getHigh().getDataType());
+		}
+		return res;
+	}
 
 	/**
 	 * If the token refers to an individual Varnode, return it. Otherwise return null
@@ -215,6 +278,25 @@ public class DecompilerUtils {
 	}
 
 	/**
+	 * Test specified variable to see if it corresponds to the auto {@code this} parameter
+	 * of the specified {@link Function}
+	 * @param var decompiler {@link HighVariable variable}
+	 * @param function decompiled function
+	 * @return true if {@code var} corresponds to existing auto {@code this} parameter, else false
+	 */
+	public static boolean isThisParameter(HighVariable var, Function function) {
+		if (var instanceof HighParam) {
+			int slot = ((HighParam) var).getSlot();
+			Parameter parameter = function.getParameter(slot);
+			if ((parameter != null) &&
+				(parameter.getAutoParameterType() == AutoParameterType.THIS)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Returns the function represented by the given token.  This will be either the
 	 * decompiled function or a function referenced within the decompiled function.
 	 *
@@ -382,8 +464,6 @@ public class DecompilerUtils {
 		Address minAddress = token.getMinAddress();
 		Address maxAddress = token.getMaxAddress();
 		maxAddress = maxAddress == null ? minAddress : maxAddress;
-		minAddress = space.getOverlayAddress(minAddress);
-		maxAddress = space.getOverlayAddress(maxAddress);
 		addrs.addRange(minAddress, maxAddress);
 	}
 
@@ -486,9 +566,18 @@ public class DecompilerUtils {
 		if (lineNumber >= lines.length) {
 			return;
 		}
+
 		ClangTextField textLine = (ClangTextField) lines[lineNumber];
 		int startIndex = getStartIndex(textLine, start);
 		int endIndex = getEndIndex(textLine, end);
+		if (startIndex >= endIndex) {
+			// There is a bug in how the start and end field location get created when a line
+			// wraps.  This is likely something we can fix if we can get an example that shows this
+			// state.  For now, we are adding this error checking to prevent an exception in the
+			// call below.
+			return;
+		}
+
 		tokenList.addAll(textLine.getTokens().subList(startIndex, endIndex));
 	}
 
@@ -540,7 +629,7 @@ public class DecompilerUtils {
 
 		String destinationStart = label.getText() + ':';
 		Address address = label.getMinAddress();
-		List<ClangToken> tokens = DecompilerUtils.getTokens(root, address);
+		List<ClangToken> tokens = getTokens(root, address);
 		for (ClangToken token : tokens) {
 			if (isGoToStatement(token)) {
 				continue; // ignore any goto statements
@@ -560,65 +649,77 @@ public class DecompilerUtils {
 		return null;
 	}
 
-	public static ClangSyntaxToken getMatchingBrace(ClangSyntaxToken startToken) {
+	/**
+	 * Starts at the given token and finds the next enclosing brace, depending on the given 
+	 * direction.  If going forward, the next unpaired closing brace will be returned; if going
+	 * backward, the next enclosing open brace will be found.   If no enclosing braces exist, 
+	 * then null is returned.
+	 * 
+	 * @param startToken the starting token
+	 * @param forward true for forward; false for backward
+	 * @return the next enclosing brace or null
+	 */
+	public static ClangSyntaxToken getNextBrace(ClangToken startToken, boolean forward) {
 
-		ClangNode parent = startToken.Parent();
-		List<ClangNode> list = new ArrayList<>();
-		parent.flatten(list);
-
-		String text = startToken.getText();
-		boolean forward = "}".equals(text);
-		if (!forward) {
-			Collections.reverse(list);
-		}
-
-		Stack<ClangSyntaxToken> braceStack = new Stack<>();
-		for (ClangNode element : list) {
-			ClangToken token = (ClangToken) element;
-			if (!(token instanceof ClangSyntaxToken)) {
-				continue;
-			}
-
-			ClangSyntaxToken syntaxToken = (ClangSyntaxToken) token;
-			if (startToken == syntaxToken) {
-
-				if (braceStack.isEmpty()) {
-					return null; // this can happen if the start token has a bad parent values
+		int targetBalance = forward ? -1 : 1;
+		Iterator<ClangToken> iter = startToken.iterator(forward);
+		iter.next();	// skip the token itself;
+		int nestLevel = 0;
+		while (iter.hasNext()) {
+			ClangToken token = iter.next();
+			if (token instanceof ClangSyntaxToken) {
+				String text = token.getText();
+				if (text.equals("{")) {
+					nestLevel += 1;
+					if (nestLevel == targetBalance) {
+						return (ClangSyntaxToken) token;
+					}
 				}
-
-				// found our starting token, take the current value on the stack
-				ClangSyntaxToken matchingBrace = braceStack.pop();
-				return matchingBrace;
-			}
-
-			if (!isBrace(syntaxToken)) {
-				continue;
-			}
-
-			if (braceStack.isEmpty()) {
-				braceStack.push(syntaxToken);
-				continue;
-			}
-
-			ClangSyntaxToken lastToken = braceStack.peek();
-			if (isMatchingBrace(lastToken, syntaxToken)) {
-				braceStack.pop();
-			}
-			else {
-				braceStack.push(syntaxToken);
+				else if (text.equals("}")) {
+					nestLevel -= 1;
+					if (nestLevel == targetBalance) {
+						return (ClangSyntaxToken) token;
+					}
+				}
 			}
 		}
 		return null;
 	}
 
-	public static boolean isMatchingBrace(ClangSyntaxToken braceToken,
-			ClangSyntaxToken otherBraceToken) {
-		String brace = braceToken.getText();
-		String otherBrace = otherBraceToken.getText();
-		return !brace.equals(otherBrace);
+	/**
+	 * Find the matching brace, '{' or '}', for the given brace token, taking into account brace nesting.
+	 * For an open brace, search forward to find the corresponding close brace.
+	 * For a close brace, search backward to find the corresponding open brace.
+	 * @param startToken is the given brace token
+	 * @return the match brace token or null if there is no match
+	 */
+	public static ClangSyntaxToken getMatchingBrace(ClangSyntaxToken startToken) {
+
+		boolean direction = "{".equals(startToken.getText());
+		Iterator<ClangToken> iter = startToken.iterator(direction);
+		int nestLevel = 0;
+		while (iter.hasNext()) {
+			ClangToken token = iter.next();
+			if (token instanceof ClangSyntaxToken) {
+				String text = token.getText();
+				if (text.equals("{")) {
+					nestLevel += 1;
+					if (nestLevel == 0) {
+						return (ClangSyntaxToken) token;
+					}
+				}
+				else if (text.equals("}")) {
+					nestLevel -= 1;
+					if (nestLevel == 0) {
+						return (ClangSyntaxToken) token;
+					}
+				}
+			}
+		}
+		return null;
 	}
 
-	public static boolean isBrace(ClangSyntaxToken token) {
+	public static boolean isBrace(ClangToken token) {
 		String text = token.getText();
 		return "{".equals(text) || "}".equals(text);
 	}
@@ -693,7 +794,7 @@ public class DecompilerUtils {
 	 * @param group is the token hierarchy
 	 * @return the array of ClangLine objects
 	 */
-	public static ArrayList<ClangLine> toLines(ClangTokenGroup group) {
+	public static List<ClangLine> toLines(ClangTokenGroup group) {
 
 		List<ClangNode> alltoks = new ArrayList<>();
 		group.flatten(alltoks);
@@ -754,6 +855,17 @@ public class DecompilerUtils {
 		if (token == null) {
 			token = context.getTokenAtCursor();
 		}
+
+		return getDataType(token);
+	}
+
+	/**
+	 * Returns the data type for the given  token
+	 * 
+	 * @param token the token
+	 * @return the data type or null
+	 */
+	public static DataType getDataType(ClangToken token) {
 
 		Varnode varnode = DecompilerUtils.getVarnodeRef(token);
 		if (varnode != null) {

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
-import ghidra.GhidraApplicationLayout;
+import generic.application.GenericApplicationLayout;
+import generic.theme.HeadlessThemeManager;
 import ghidra.framework.Application;
 import ghidra.framework.ApplicationConfiguration;
 import help.validator.*;
@@ -36,9 +37,9 @@ import help.validator.location.HelpModuleCollection;
  * Note: Help links must not be absolute.  They can be relative, including <code>. and ..</code>
  * syntax.  Further, they can use the special help system syntax, which is:
  * <ul>
- * 	<li><code><b>help/topics/</b>topicName/Filename.html</code> for referencing help topic files
+ * 	<li><code><b>help/topics/</b>topicName/Filename.html</code> for referencing help topic files</li>
  *  <li><code><b>help/</b>shared/image.png</code> for referencing image files at paths rooted under
- *                                            the module's root help dir
+ *                                            the module's root help dir</li>
  * </ul>
  */
 public class GHelpBuilder {
@@ -50,13 +51,15 @@ public class GHelpBuilder {
 	private static final String OUTPUT_DIRECTORY_OPTION = "-o";
 	private static final String MODULE_NAME_OPTION = "-n";
 	private static final String HELP_PATHS_OPTION = "-hp";
+	private static final String HELP_PATHS_GENERATED_OPTION = "-hpg";
 	private static final String DEBUG_SWITCH = "-debug";
 	private static final String IGNORE_INVALID_SWITCH = "-ignoreinvalid";
 
 	private String outputDirectoryName;
 	private String moduleName;
-	private Collection<File> dependencyHelpPaths = new LinkedHashSet<File>();
-	private Collection<File> helpInputDirectories = new LinkedHashSet<File>();
+	private Collection<File> dependencyHelpPaths = new LinkedHashSet<>();
+	private Collection<File> generatedDependencyHelpPaths = new LinkedHashSet<>();
+	private Collection<File> helpInputDirectories = new LinkedHashSet<>();
 	private static boolean debugEnabled = false;
 	private boolean ignoreInvalid = false; // TODO: Do actual validation here
 
@@ -66,9 +69,18 @@ public class GHelpBuilder {
 	public static void main(String[] args) throws Exception {
 		GHelpBuilder builder = new GHelpBuilder();
 		builder.exitOnError = true;
-
-		ApplicationConfiguration config = new ApplicationConfiguration();
-		Application.initializeApplication(new GhidraApplicationLayout(), config);
+		ApplicationConfiguration config = new ApplicationConfiguration() {
+			@Override
+			protected void initializeApplication() {
+				//
+				// We must be headless, as we are utility class.  But, we also need theme properties
+				// to be loaded and correct for the help system to function properly.
+				//
+				HeadlessThemeManager.initialize();
+			}
+		};
+		Application.initializeApplication(new GenericApplicationLayout("Help Builder", "0.1"),
+			config);
 
 		builder.build(args);
 	}
@@ -98,11 +110,26 @@ public class GHelpBuilder {
 	}
 
 	private HelpModuleCollection collectAllHelp() {
-		List<File> allHelp = new ArrayList<File>(helpInputDirectories);
+		List<File> allHelp = new ArrayList<>(helpInputDirectories);
 		for (File file : dependencyHelpPaths) {
 			allHelp.add(file);
 		}
-		return HelpModuleCollection.fromFiles(allHelp);
+
+		HelpModuleCollection help = HelpModuleCollection.fromFiles(allHelp);
+
+		for (File file : generatedDependencyHelpPaths) {
+			help.addGeneratedHelpLocation(file);
+		}
+
+		return help;
+	}
+
+	private HelpModuleCollection collectInputHelp() {
+		HelpModuleCollection help = HelpModuleCollection.fromFiles(helpInputDirectories);
+		for (File file : generatedDependencyHelpPaths) {
+			help.addGeneratedHelpLocation(file);
+		}
+		return help;
 	}
 
 	private Results validateHelpDirectories(HelpModuleCollection help, LinkDatabase linkDatabase) {
@@ -153,11 +180,11 @@ public class GHelpBuilder {
 		JavaHelpFilesBuilder fileBuilder =
 			new JavaHelpFilesBuilder(outputDirectory, moduleName, linkDatabase);
 
-		HelpModuleCollection help = HelpModuleCollection.fromFiles(helpInputDirectories);
+		HelpModuleCollection helpInput = collectInputHelp();
 
 		// 1) Generate JavaHelp files for the module (e.g., TOC file, map file)
 		try {
-			fileBuilder.generateHelpFiles(help);
+			fileBuilder.generateHelpFiles(helpInput);
 		}
 		catch (Exception e) {
 			exitWithError("Unexpected error building help module files:\n", e);
@@ -292,6 +319,20 @@ public class GHelpBuilder {
 					}
 				}
 			}
+			else if (opt.equals(HELP_PATHS_GENERATED_OPTION)) {
+				i++;
+				if (i >= args.length) {
+					errorMessage(HELP_PATHS_GENERATED_OPTION + " requires an argument");
+					printUsage();
+					System.exit(1);
+				}
+				String hp = args[i];
+				if (hp.length() > 0) {
+					for (String p : hp.split(File.pathSeparator)) {
+						generatedDependencyHelpPaths.add(new File(p));
+					}
+				}
+			}
 			else if (opt.equals(DEBUG_SWITCH)) {
 				debugEnabled = true;
 			}
@@ -344,17 +385,6 @@ public class GHelpBuilder {
 		buffy.append("    ").append(IGNORE_INVALID_SWITCH).append("\n");
 		buffy.append("                  to continue despite broken links and anchors\n");
 
-		errorMessage(buffy.toString());
-	}
-
-	private static void warningMessage(String... message) {
-		StringBuilder buffy = new StringBuilder();
-		buffy.append("\n");
-		buffy.append("              !!!!!     WARNING     !!!!!\n");
-		for (String string : message) {
-			buffy.append('\t').append('\t').append(string).append('\n');
-		}
-		buffy.append("\n");
 		errorMessage(buffy.toString());
 	}
 

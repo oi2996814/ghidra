@@ -15,6 +15,8 @@
  */
 package ghidra.app.util.bin.format.pdb2.pdbreader;
 
+import java.io.*;
+
 /**
  * This class represents Segment Map Description component of a PDB file.  This class is only
  *  suitable for reading; not for writing or modifying a PDB.
@@ -34,6 +36,62 @@ public class SegmentMapDescription {
 	private long segLength;
 
 	/**
+	 * Returns the {@link SegmentMapDescription} flags.
+	 * @return the flags.
+	 */
+	public int getFlags() {
+		return flags;
+	}
+
+	/**
+	 * Returns the {@link SegmentMapDescription} ovl (overlay?).
+	 * @return the ovl.
+	 */
+	public int getOvl() {
+		return ovl;
+	}
+
+	/**
+	 * Returns the {@link SegmentMapDescription} group.
+	 * @return the group.
+	 */
+	public int getGroup() {
+		return group;
+	}
+
+	/**
+	 * Returns the {@link SegmentMapDescription} frame.
+	 * @return the frame.
+	 */
+	public int getFrame() {
+		return frame;
+	}
+
+	/**
+	 * Returns the {@link SegmentMapDescription} segNameIndex.
+	 * @return the segNameIndex.
+	 */
+	public int getSegNameIndex() {
+		return segNameIndex;
+	}
+
+	/**
+	 * Returns the {@link SegmentMapDescription} classNameIndex.
+	 * @return the classNameIndex.
+	 */
+	public int getClassNameIndex() {
+		return classNameIndex;
+	}
+
+	/**
+	 * Returns the {@link SegmentMapDescription} segment offset.
+	 * @return the segment offset.
+	 */
+	public long getOffset() {
+		return segOffset;
+	}
+
+	/**
 	 * Returns the segment offset.
 	 * @return The offset of the segment.
 	 */
@@ -42,7 +100,7 @@ public class SegmentMapDescription {
 	}
 
 	/**
-	 * Returns the segment length.
+	 * Returns the {@link SegmentMapDescription} segment length.
 	 * @return The length of the segment.
 	 */
 	public long getLength() {
@@ -65,30 +123,35 @@ public class SegmentMapDescription {
 		segLength = substreamReader.parseUnsignedIntVal();
 	}
 
+	@Override
+	public String toString() {
+		StringWriter writer = new StringWriter();
+		try {
+			dump(writer);
+			return writer.toString();
+		}
+		catch (IOException e) {
+			return "Issue in " + getClass().getSimpleName() + " toString(): " + e.getMessage();
+		}
+	}
+
 	/**
-	 * Dumps the {@link SegmentMapDescription}.  This method is for debugging only.
-	 * @return {@link String} of pretty output.
+	 * Dumps the {@link SegmentMapDescription} to writer.  This method is for debugging only
+	 * @param writer the writer
+	 * @throws IOException upon issue with writing to the writer
 	 */
-	protected String dump() {
-		StringBuilder builder = new StringBuilder();
-		builder.append("SegmentMapDescription---------------------------------------");
-		builder.append("\nflags: ");
-		builder.append(flags);
-		builder.append("\novl: ");
-		builder.append(ovl);
-		builder.append("\ngroup: ");
-		builder.append(group);
-		builder.append("\nframe: ");
-		builder.append(frame);
-		builder.append("\nsegNameIndex: ");
-		builder.append(segNameIndex);
-		builder.append("; classNameIndex: ");
-		builder.append(classNameIndex);
-		builder.append("; segOffset: ");
-		builder.append(segOffset);
-		builder.append("; segLength: ");
-		builder.append(segLength);
-		return builder.toString();
+	void dump(Writer writer) throws IOException {
+		PdbReaderUtils.dumpHead(writer, this);
+		writer.write(String.format("\nflags: 0x%04x", flags));
+		writer.write("\novl: " + ovl);
+		writer.write("\ngroup: " + group);
+		writer.write("\nframe: " + frame);
+		writer.write("\nsegNameIndex: " + segNameIndex);
+		writer.write("; classNameIndex: " + classNameIndex);
+		writer.write("; segOffset: " + segOffset);
+		writer.write("; segLength: " + segLength);
+		writer.write("\n");
+		PdbReaderUtils.dumpTail(writer, this);
 	}
 
 }

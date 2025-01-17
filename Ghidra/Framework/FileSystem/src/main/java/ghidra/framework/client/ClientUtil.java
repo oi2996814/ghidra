@@ -18,7 +18,6 @@ package ghidra.framework.client;
 import java.awt.Component;
 import java.io.IOException;
 import java.net.Authenticator;
-import java.net.UnknownHostException;
 import java.rmi.*;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
@@ -32,9 +31,9 @@ import ghidra.framework.remote.*;
 import ghidra.framework.remote.security.SSHKeyManager;
 import ghidra.net.*;
 import ghidra.util.*;
-import ghidra.util.exception.AssertException;
-import ghidra.util.exception.UserAccessException;
+import ghidra.util.exception.*;
 import ghidra.util.task.TaskLauncher;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * <code>ClientUtil</code> allows a user to connect to a Repository Server and obtain its handle.
@@ -50,7 +49,7 @@ public class ClientUtil {
 
 	/**
 	 * Set client authenticator
-	 * @param authenticator
+	 * @param authenticator client authenticator instance
 	 */
 	public static synchronized void setClientAuthenticator(ClientAuthenticator authenticator) {
 		clientAuthenticator = authenticator;
@@ -106,14 +105,6 @@ public class ClientUtil {
 		// ensure that default callback is setup if possible
 		getClientAuthenticator();
 
-		host = host.trim().toLowerCase();
-		try {
-			host = InetNameLookup.getCanonicalHostName(host);
-		}
-		catch (UnknownHostException e) {
-			Msg.warn(ClientUtil.class, "Failed to resolve hostname for " + host);
-		}
-
 		if (port <= 0) {
 			port = GhidraServerHandle.DEFAULT_PORT;
 		}
@@ -142,25 +133,32 @@ public class ClientUtil {
 	}
 
 	/**
+	 * Determine if a connected {@link RepositoryServerAdapter} already exists for the specified server.
+	 * @param host server name or address
+	 * @param port server port, 0 indicates that default port applies.
+	 * @return true if connection already exists, else false
+	 */
+	public static boolean isConnected(String host, int port) {
+		if (port <= 0) {
+			port = GhidraServerHandle.DEFAULT_PORT;
+		}
+		ServerInfo server = new ServerInfo(host, port);
+		RepositoryServerAdapter rsa = serverHandles.get(server);
+		return rsa != null && rsa.isConnected();
+	}
+
+	/**
 	 * Eliminate the specified repository server from the connection cache
 	 * @param host host name or IP address
 	 * @param port port (0: use default port)
-	 * @throws IOException
 	 */
-	public static void clearRepositoryAdapter(String host, int port) throws IOException {
-		host = host.trim().toLowerCase();
-		String hostAddr = host;
-		try {
-			hostAddr = InetNameLookup.getCanonicalHostName(host);
-		}
-		catch (UnknownHostException e) {
-			throw new IOException("Repository server lookup failed: " + host);
-		}
+	public static void clearRepositoryAdapter(String host, int port) {
 
 		if (port == 0) {
 			port = GhidraServerHandle.DEFAULT_PORT;
 		}
-		ServerInfo server = new ServerInfo(hostAddr, port);
+
+		ServerInfo server = new ServerInfo(host, port);
 		RepositoryServerAdapter serverAdapter = serverHandles.remove(server);
 		if (serverAdapter != null) {
 			serverAdapter.disconnect();
@@ -170,15 +168,10 @@ public class ClientUtil {
 	/**
 	 * Returns default user login name.  Actual user name used by repository
 	 * should be obtained from RepositoryServerAdapter.getUser
+	 * @return default user name
 	 */
 	public static String getUserName() {
-		String name = SystemUtilities.getUserName();
-		// exclude domain prefix which may be included
-		int slashIndex = name.lastIndexOf('\\');
-		if (slashIndex >= 0) {
-			name = name.substring(slashIndex + 1);
-		}
-		return name;
+		return SystemUtilities.getUserName();
 	}
 
 	/**
@@ -205,6 +198,9 @@ public class ClientUtil {
 		if ((exc instanceof ConnectException) || (exc instanceof NotConnectedException)) {
 			Msg.debug(ClientUtil.class, "Server not connected (" + operation + ")");
 			promptForReconnect(repository, operation, mustRetry, parent);
+		}
+		else if (exc instanceof RepositoryNotFoundException) {
+			Msg.showError(ClientUtil.class, parent, title, exc.getMessage());
 		}
 		else if (exc instanceof UserAccessException) {
 			Msg.showError(ClientUtil.class, parent, title,
@@ -294,16 +290,19 @@ public class ClientUtil {
 
 	/**
 	 * Connect to a Ghidra Server and verify compatibility.  This method can be used
-	 * to affectively "ping" the Ghidra Server to verify the ability to connect.
+	 * to effectively "ping" the Ghidra Server to verify the ability to connect.
 	 * NOTE: Use of this method when PKI authentication is enabled is not supported.
 	 * @param host server hostname
 	 * @param port first Ghidra Server port (0=use default)
+	 * @param monitor cancellable monitor
 	 * @throws IOException thrown if an IO Error occurs (e.g., server not found).
 	 * @throws RemoteException if server interface is incompatible or another server-side
 	 * error occurs.
+	 * @throws CancelledException if connection attempt was cancelled
 	 */
-	public static void checkGhidraServer(String host, int port) throws IOException {
-		ServerConnectTask.getGhidraServerHandle(new ServerInfo(host, port));
+	public static void checkGhidraServer(String host, int port, TaskMonitor monitor)
+			throws IOException, CancelledException {
+		ServerConnectTask.getGhidraServerHandle(new ServerInfo(host, port), monitor);
 	}
 
 	/**
@@ -319,24 +318,28 @@ public class ClientUtil {
 	 * @throws GeneralSecurityException if server authentication fails due to
 	 * credential access error (e.g., PKI cert failure)
 	 * @throws IOException thrown if an IO Error occurs.
+	 * @throws CancelledException if connection cancelled by user (does not apply to Headless use)
 	 */
 	static RemoteRepositoryServerHandle connect(ServerInfo server)
-			throws LoginException, GeneralSecurityException, IOException {
+			throws LoginException, GeneralSecurityException, IOException, CancelledException {
 
 		getClientAuthenticator();
 		boolean allowLoginRetry = (clientAuthenticator instanceof DefaultClientAuthenticator);
 
 		RemoteRepositoryServerHandle hdl = null;
 		ServerConnectTask connectTask = new ServerConnectTask(server, allowLoginRetry);
-		if (!SystemUtilities.isInHeadlessMode() && SystemUtilities.isEventDispatchThread()) {
-			// Must be done in modal dialog to allow possible authentication prompts
-			// from another thread.
-
-			TaskLauncher.launch(connectTask);
+		if (SystemUtilities.isInHeadlessMode()) {
+			connectTask.run(TaskMonitor.DUMMY); // headless - can't cancel
 		}
 		else {
-			connectTask.run(null);
+			// Must be done in modal dialog to allow cancellation and possible authentication prompts
+			// from another thread.
+			TaskLauncher.launch(connectTask);
+			if (connectTask.isCancelled()) {
+				throw new CancelledException();
+			}
 		}
+
 		hdl = connectTask.getRepositoryServerHandle();
 		if (hdl == null) {
 			Exception e = connectTask.getException();
@@ -365,7 +368,7 @@ public class ClientUtil {
 	 * @param parent dialog parent
 	 * @param handle server handle
 	 * @param serverInfo server information
-	 * @throws IOException
+	 * @throws IOException if error occurs while updating password
 	 */
 	public static void changePassword(Component parent, RepositoryServerHandle handle,
 			String serverInfo) throws IOException {
@@ -440,11 +443,11 @@ public class ClientUtil {
 	static void processSignatureCallback(String serverName, SignatureCallback sigCb)
 			throws IOException {
 		try {
-			SignedToken signedToken = ApplicationKeyManagerUtils.getSignedToken(
-				sigCb.getRecognizedAuthorities(), sigCb.getToken());
+			SignedToken signedToken = ApplicationKeyManagerUtils
+					.getSignedToken(sigCb.getRecognizedAuthorities(), sigCb.getToken());
 			sigCb.sign(signedToken.certChain, signedToken.signature);
 			Msg.info(ClientUtil.class, "PKI Authenticating to " + serverName + " as user '" +
-				signedToken.certChain[0].getSubjectDN() + "'");
+				signedToken.certChain[0].getSubjectX500Principal() + "'");
 		}
 		catch (Exception e) {
 			String msg = e.getMessage();

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,10 @@
  */
 #include "transform.hh"
 #include "funcdata.hh"
+
+namespace ghidra {
+
+AttributeId ATTRIB_VECTOR_LANE_SIZES = AttributeId("vector_lane_sizes",130);
 
 /// \param op2 is the lane description to copy from
 LaneDescription::LaneDescription(const LaneDescription &op2)
@@ -264,6 +268,19 @@ bool TransformOp::attemptInsertion(Funcdata *fd)
   return true;		// Already inserted
 }
 
+/// Prepare to build the transformed INDIRECT PcodeOp based on settings from the given INDIRECT.
+/// \param indOp is the given INDIRECT
+void TransformOp::inheritIndirect(PcodeOp *indOp)
+
+{
+  if (indOp->isIndirectCreation()) {
+    if (indOp->getIn(0)->isIndirectZero())
+      special |= TransformOp::indirect_creation;
+    else
+      special |= TransformOp::indirect_creation_possible_out;
+  }
+}
+
 void LanedRegister::LanedIterator::normalize(void)
 
 {
@@ -277,25 +294,13 @@ void LanedRegister::LanedIterator::normalize(void)
   size = -1;		// Indicate ending iterator
 }
 
-/// Read XML of the form \<register name=".." vector_lane_sizes=".."/>
-/// \param el is the particular \e register tag
-/// \param manage is used to map register names to storage info
-/// \return \b true if the XML description provides lane sizes
-bool LanedRegister::restoreXml(const Element *el,const AddrSpaceManager *manage)
+/// Collect specific lane sizes in this object.
+/// \param registerSize is the size of the laned register in bytes
+/// \param laneSizes is a comma separated list of sizes
+ void LanedRegister::parseSizes(int4 registerSize,string laneSizes)
 
 {
-  string laneSizes;
-  for(int4 i=0;i<el->getNumAttributes();++i) {
-    if (el->getAttributeName(i) == "vector_lane_sizes") {
-      laneSizes = el->getAttributeValue(i);
-      break;
-    }
-  }
-  if (laneSizes.empty()) return false;
-  VarnodeData storage;
-  storage.space = (AddrSpace *)0;
-  storage.restoreXml(el, manage);
-  wholeSize = storage.size;
+  wholeSize = registerSize;
   sizeBitMask = 0;
   string::size_type pos = 0;
   while(pos != string::npos) {
@@ -319,7 +324,6 @@ bool LanedRegister::restoreXml(const Element *el,const AddrSpaceManager *manage)
       throw LowlevelError("Bad lane size: " + value);
     addLaneSize(sz);
   }
-  return true;
 }
 
 TransformManager::~TransformManager(void)
@@ -747,3 +751,5 @@ void TransformManager::apply(void)
   transformInputVarnodes(inputList);
   placeInputs();
 }
+
+} // End namespace ghidra

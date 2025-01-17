@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,12 +18,11 @@ package ghidra.app.util.bin.format.pdb2.pdbreader;
 import java.io.IOException;
 
 import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitor;
 
 /**
- * Parser for detecting the appropriate {@link AbstractTypeProgramInterface} format for the
+ * Parser for detecting the appropriate {@link TypeProgramInterface} format for the
  *  filename given.  It then creates and returns the appropriate
- *  {@link AbstractTypeProgramInterface} object.
+ *  {@link TypeProgramInterface} object.
  */
 public class TypeProgramInterfaceParser {
 
@@ -44,30 +43,29 @@ public class TypeProgramInterfaceParser {
 	// API
 	//==============================================================================================
 	/**
-	 * Parses information to determine the version of {@link AbstractTypeProgramInterface} to
-	 *  create.
-	 * @param pdb {@link AbstractPdb} that owns this {@link AbstractTypeProgramInterface}.
-	 * @param monitor {@link TaskMonitor} used for checking cancellation.
-	 * @return the appropriate {@link AbstractTypeProgramInterface} or null if the stream does
-	 *  not have enough information to be parsed.
-	 * @throws IOException On file seek or read, invalid parameters, bad file configuration, or
-	 *  inability to read required bytes.
-	 * @throws PdbException Upon error in processing components.
-	 * @throws CancelledException Upon user cancellation.
+	 * Parses information to determine the version of {@link TypeProgramInterface} to
+	 *  create
+	 * @param pdb {@link AbstractPdb} that owns this {@link TypeProgramInterface}
+	 * @return the appropriate {@link TypeProgramInterface} or null if the stream does
+	 *  not have enough information to be parsed
+	 * @throws IOException on file seek or read, invalid parameters, bad file configuration, or
+	 *  inability to read required bytes
+	 * @throws PdbException upon error in processing components
+	 * @throws CancelledException upon user cancellation
 	 */
-	public AbstractTypeProgramInterface parse(AbstractPdb pdb, TaskMonitor monitor)
+	public TypeProgramInterface parse(AbstractPdb pdb)
 			throws IOException, PdbException, CancelledException {
-		AbstractTypeProgramInterface typeProgramInterface;
+		TypeProgramInterface typeProgramInterface;
 
-		int versionNumberSize = AbstractTypeProgramInterface.getVersionNumberSize();
+		int versionNumberSize = TypeProgramInterface.getVersionNumberSize();
 		int streamNumber = getStreamNumber();
 		PdbByteReader reader =
-			pdb.getReaderForStreamNumber(streamNumber, 0, versionNumberSize, monitor);
+			pdb.getReaderForStreamNumber(streamNumber, 0, versionNumberSize);
 		if (reader.getLimit() < versionNumberSize) {
 			return null;
 		}
 
-		int versionNumber = AbstractTypeProgramInterface.deserializeVersionNumber(reader);
+		int versionNumber = TypeProgramInterface.deserializeVersionNumber(reader);
 
 		// TODO: we do not know where the line should be drawn for each of these
 		//  AbstractTypeProgramInterface instantiations.  Had a TI50_ID that was not an 800
@@ -92,7 +90,19 @@ public class TypeProgramInterfaceParser {
 					new TypeProgramInterface800(pdb, getCategory(), streamNumber);
 				break;
 			default:
-				throw new PdbException("Unknown TPI Version: " + versionNumber);
+				// See MSFT "doc" pdb.cpp OpenIpi() note regarding hack.
+				// For IPI, if normal stream number exists and it is unnamed, then try to
+				//  parse it, and accept it if no errors.  However, at this point, this would
+				//  be considered an error here.  But we want to be careful about killing
+				//  PDB parsing here for this case.  So we have added the isReasonableError()
+				//  check here, which always returns true for TPI, but does special checking
+				//  for IPI.  If IPI says it is not a reasonable error (version number looks like
+				//  a non-version number and it is an API), then we must presume that the stream
+				//  is not really an IPI stream and just return null.
+				if (isReasonableError(versionNumber)) {
+					throw new PdbException("Unknown TPI Version: " + versionNumber);
+				}
+				typeProgramInterface = null;
 		}
 
 		return typeProgramInterface;
@@ -102,8 +112,8 @@ public class TypeProgramInterfaceParser {
 	// Internal Data Methods
 	//==============================================================================================
 	/**
-	 * Returns the standard stream number that contains the serialized Type Program Interface.
-	 * @return The standard stream number that contains the Type Program Interface.
+	 * Returns the standard stream number that contains the serialized Type Program Interface
+	 * @return the standard stream number that contains the Type Program Interface
 	 */
 	protected int getStreamNumber() {
 		return TYPE_PROGRAM_INTERFACE_STREAM_NUMBER;
@@ -111,12 +121,24 @@ public class TypeProgramInterfaceParser {
 
 	/**
 	 * Returns the appropriate {@link RecordCategory} needed while processing
-	 *  the Type Program Interface} (vs. Item Program Interface).
-	 * @return {@link RecordCategory#TYPE}.
+	 *  the Type Program Interface} (vs. Item Program Interface)
+	 * @return {@link RecordCategory#TYPE}
 	 */
 	protected RecordCategory getCategory() {
 		return RecordCategory.TYPE;
 
+	}
+
+	/**
+	 * Returns whether there is a reasonable error when searching for a version number.  For
+	 *  the standard TPI case, any unrecognized version number is a reasonable error.  This
+	 *  method gets overridden in IPI for the hack situation described earlier in the default
+	 *  case above
+	 * @param versionNumber the versionNumber being checked
+	 * @return {@code true} if the error is a reasonable error
+	 */
+	protected boolean isReasonableError(int versionNumber) {
+		return true;
 	}
 
 }

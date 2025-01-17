@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,8 +24,7 @@ import javax.swing.*;
 
 import org.junit.*;
 
-import docking.ActionContext;
-import docking.DialogComponentProvider;
+import docking.*;
 import docking.action.DockingActionIf;
 import docking.widgets.fieldpanel.*;
 import docking.widgets.fieldpanel.field.Field;
@@ -51,9 +50,6 @@ import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 
 public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
-
-	private static final String COMMENTS_CHECK_BOX_TEXT =
-		"<HTML>Comments <FONT SIZE=\"2\">(does not affect automatic comments)</FONT>";
 
 	private TestEnv env;
 	private PluginTool tool;
@@ -177,7 +173,9 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testClearActionEnablement() throws Exception {
 
 		closeProgram();
-		assertTrue(!clearAction.isEnabledForContext(new ActionContext()));
+
+		assertFalse(isEnabled(clearAction, cb.getProvider()));
+		assertFalse(clearAction.isEnabledForContext(new DefaultActionContext()));
 
 		showTool(tool);
 		loadProgram("notepad");
@@ -185,10 +183,10 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 		waitForSwing();
 		assertTrue(cb.goToField(addr("0x10026f0"), "Address", 0, 0));
 
-		assertTrue(clearAction.isEnabled());
+		assertTrue(isEnabled(clearAction, cb.getProvider()));
 		closeProgram();
 
-		assertTrue(!clearAction.isEnabledForContext(new ActionContext()));
+		assertFalse(isEnabled(clearAction, cb.getProvider()));
 	}
 
 	@Test
@@ -201,7 +199,6 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 		doClearAction(true);
 
 		assertEquals(numInstructions, program.getListing().getNumInstructions());
-
 	}
 
 	@Test
@@ -284,7 +281,7 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	/*
-	 * This tests that a selection that includes the outermost header of does not change the 
+	 * This tests that a selection that includes the outermost header of does not change the
 	 * selection, but instead removes the structure from the listing at that address.
 	 */
 	@Test
@@ -369,9 +366,10 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
 
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Functions", cd);
 		turnOffOption("Registers", cd);
 		turnOffOption("Equates", cd);
@@ -397,7 +395,7 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
 
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Functions", cd);
 		turnOffOption("Registers", cd);
@@ -429,10 +427,11 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
 
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Functions", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Registers", cd);
 		turnOffOption("Equates", cd);
 		turnOffOption("Bookmarks", cd);
@@ -453,7 +452,7 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		Symbol[] symbols = program.getSymbolTable().getSymbols(addr("0x01001010"));
 		assertEquals(1, symbols.length);
-		assertTrue(!symbols[0].isDynamic());
+		assertFalse(symbols[0].isDynamic());
 		int id = program.startTransaction("Anchor");
 		symbols[0].setPinned(true);
 		program.endTransaction(id, true);
@@ -467,7 +466,7 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		symbols = program.getSymbolTable().getSymbols(addr("0x01001010"));
 		assertEquals(1, symbols.length);
-		assertTrue(!symbols[0].isDynamic());
+		assertFalse(symbols[0].isDynamic());
 	}
 
 	@Test
@@ -484,10 +483,11 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
 
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Functions", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Registers", cd);
 		turnOffOption("Equates", cd);
 		turnOffOption("Bookmarks", cd);
@@ -518,10 +518,11 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
 
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Functions", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Registers", cd);
 		turnOffOption("Equates", cd);
 		turnOffOption("Bookmarks", cd);
@@ -572,7 +573,8 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 
 		okOnClearDialog();
 
@@ -596,12 +598,13 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Functions", cd);
 		turnOffOption("Registers", cd);
 		turnOffOption("Equates", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Symbols", cd);
 
 		okOnClearDialog();
@@ -625,12 +628,13 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Bookmarks", cd);
 		turnOffOption("Registers", cd);
 		turnOffOption("Equates", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Symbols", cd);
 
 		okOnClearDialog();
@@ -639,11 +643,81 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 		assertTrue(l.getNumInstructions() > 0);
 		assertTrue(l.getNumDefinedData() > 0);
 
-		assertTrue(!program.getListing().getFunctions(true).hasNext());
+		assertFalse(program.getListing().getFunctions(true).hasNext());
 
 		assertTrue(program.getSymbolTable().getNumSymbols() > 0);
 		undo(program);
 		assertTrue(program.getListing().getFunctions(true).hasNext());
+
+	}
+
+	@Test
+	public void testClearJustInstructions() throws Exception {
+		Listing listing = program.getListing();
+
+		long numInstructions = listing.getNumInstructions();
+		long numDefinedData = listing.getNumDefinedData();
+
+		assertTrue(numInstructions > 0);
+		assertTrue(numDefinedData > 0);
+
+		DockingActionIf action = getAction(tool, "Select All");
+		performAction(action, cb.getProvider(), true);
+
+		performAction(clearWithOptionsAction, cb.getProvider(), false);
+		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
+		turnOffOption("Comments", cd);
+		turnOffOption("Properties", cd);
+		turnOffOption("Bookmarks", cd);
+		turnOffOption("Registers", cd);
+		turnOffOption("Equates", cd);
+		turnOffOption("Data", cd);
+		turnOffOption("Symbols", cd);
+		turnOffOption("Functions", cd);
+
+		okOnClearDialog();
+
+		assertEquals(0, listing.getNumInstructions());
+		assertEquals(numDefinedData, listing.getNumDefinedData());
+
+		undo(program);
+		assertEquals(numInstructions, listing.getNumInstructions());
+		assertEquals(numDefinedData, listing.getNumDefinedData());
+
+	}
+
+	@Test
+	public void testClearJustDefinedData() throws Exception {
+		Listing listing = program.getListing();
+
+		long numInstructions = listing.getNumInstructions();
+		long numDefinedData = listing.getNumDefinedData();
+
+		assertTrue(numInstructions > 0);
+		assertTrue(numDefinedData > 0);
+
+		DockingActionIf action = getAction(tool, "Select All");
+		performAction(action, cb.getProvider(), true);
+
+		performAction(clearWithOptionsAction, cb.getProvider(), false);
+		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
+		turnOffOption("Comments", cd);
+		turnOffOption("Properties", cd);
+		turnOffOption("Bookmarks", cd);
+		turnOffOption("Registers", cd);
+		turnOffOption("Equates", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Symbols", cd);
+		turnOffOption("Functions", cd);
+
+		okOnClearDialog();
+
+		assertEquals(numInstructions, listing.getNumInstructions());
+		assertEquals(0, listing.getNumDefinedData());
+
+		undo(program);
+		assertEquals(numInstructions, listing.getNumInstructions());
+		assertEquals(numDefinedData, listing.getNumDefinedData());
 
 	}
 
@@ -664,17 +738,18 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Bookmarks", cd);
 		turnOffOption("Functions", cd);
 		turnOffOption("Equates", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Symbols", cd);
 
 		okOnClearDialog();
 
-		assertTrue(!context.hasValueOverRange(ax, BigInteger.valueOf(5),
+		assertFalse(context.hasValueOverRange(ax, BigInteger.valueOf(5),
 			new AddressSet(addr("0x10022cc"))));
 		undo(program);
 		assertTrue(context.hasValueOverRange(ax, BigInteger.valueOf(5),
@@ -695,12 +770,13 @@ public class ClearTest extends AbstractGhidraHeadedIntegrationTest {
 
 		performAction(clearWithOptionsAction, cb.getProvider(), false);
 		ClearDialog cd = waitForDialogComponent(ClearDialog.class);
-		turnOffOption(COMMENTS_CHECK_BOX_TEXT, cd);
+		turnOffOption("Comments", cd);
 		turnOffOption("Properties", cd);
 		turnOffOption("Bookmarks", cd);
 		turnOffOption("Functions", cd);
 		turnOffOption("Registers", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
+		turnOffOption("Data", cd);
 		turnOffOption("Symbols", cd);
 
 		okOnClearDialog();

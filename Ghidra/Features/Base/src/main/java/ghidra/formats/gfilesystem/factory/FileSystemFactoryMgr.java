@@ -15,7 +15,6 @@
  */
 package ghidra.formats.gfilesystem.factory;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -212,18 +211,13 @@ public class FileSystemFactoryMgr {
 		byte[] startBytes = byteProvider.readBytes(0, pboByteCount);
 		for (FileSystemInfoRec fsir : sortedFactories) {
 			try {
-				if (fsir.getFactory() instanceof GFileSystemProbeBytesOnly) {
-					GFileSystemProbeBytesOnly factoryProbe =
-						(GFileSystemProbeBytesOnly) fsir.getFactory();
-					if (factoryProbe.getBytesRequired() <= startBytes.length) {
-						if (factoryProbe.probeStartBytes(containerFSRL, startBytes)) {
-							return true;
-						}
+				if (fsir.getFactory() instanceof GFileSystemProbeBytesOnly factoryProbe) {
+					if (factoryProbe.getBytesRequired() <= startBytes.length &&
+						factoryProbe.probeStartBytes(containerFSRL, startBytes)) {
+						return true;
 					}
 				}
-				if (fsir.getFactory() instanceof GFileSystemProbeByteProvider) {
-					GFileSystemProbeByteProvider factoryProbe =
-						(GFileSystemProbeByteProvider) fsir.getFactory();
+				if (fsir.getFactory() instanceof GFileSystemProbeByteProvider factoryProbe) {
 					if (factoryProbe.probe(byteProvider, fsService, monitor)) {
 						return true;
 					}
@@ -242,8 +236,7 @@ public class FileSystemFactoryMgr {
 	 * if found, creates a new filesystem instance.
 	 * <p>
 	 *
-	 * @param containerFSRL {@link FSRL} of the containing file.
-	 * @param containerFile {@link File} the containing file.
+	 * @param byteProvider container {@link ByteProvider}, will be owned by the new filesystem
 	 * @param fsService reference to the {@link FileSystemService} instance.
 	 * @param conflictResolver {@link FileSystemProbeConflictResolver conflict resolver} to
 	 * use when more than one {@link GFileSystem} implementation can handle the specified

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,12 @@
  */
 package ghidra.app.plugin.core.byteviewer;
 
-import java.awt.*;
+import java.awt.Component;
+import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.math.BigInteger;
 import java.util.*;
-import java.util.List;
 import java.util.Map.Entry;
 
 import javax.swing.*;
@@ -31,6 +31,8 @@ import javax.swing.event.ChangeListener;
 import docking.DialogComponentProvider;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.label.GLabel;
+import generic.theme.GThemeDefaults.Colors;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import ghidra.app.plugin.core.format.ByteBlockSelection;
 import ghidra.app.plugin.core.format.DataFormatModel;
 import ghidra.app.util.AddressInput;
@@ -79,12 +81,12 @@ public class ByteViewerOptionsDialog extends DialogComponentProvider
 		if (provider instanceof ProgramByteViewerComponentProvider) {
 			Program program = ((ProgramByteViewerComponentProvider) provider).getProgram();
 			if (program != null) {
-				addressInputField = new AddressInput();
-				addressInputField.setAddressFactory(program.getAddressFactory());
-				addressInputField.showAddressSpaceCombo(false);
-				addressInputField.setAddress(getAlignmentAddress());
+				Address alignment = getAlignmentAddress();
+				addressInputField = new AddressInput(program, a -> update());
+				addressInputField.setAddressSpaceFilter(s -> s == alignment.getAddressSpace());
+				addressInputField.setAddress(alignment);
 				panel.add(addressInputField);
-				addressInputField.addChangeListener(this);
+				addressInputField.setAccessibleName("Alignment Address");
 			}
 		}
 
@@ -95,6 +97,7 @@ public class ByteViewerOptionsDialog extends DialogComponentProvider
 		bytesPerLineField.setValue(BigInteger.valueOf(provider.getBytesPerLine()));
 		panel.add(bytesPerLineField);
 		bytesPerLineField.addChangeListener(this);
+		bytesPerLineField.getAccessibleContext().setAccessibleName("Bytes Per Line");
 
 		panel.add(new GLabel("Group size (Hex View Only):"));
 		groupSizeField = new FixedBitSizeValueField(8, false, true);
@@ -103,6 +106,7 @@ public class ByteViewerOptionsDialog extends DialogComponentProvider
 		groupSizeField.setValue(BigInteger.valueOf(provider.getGroupSize()));
 		panel.add(groupSizeField);
 		groupSizeField.addChangeListener(this);
+		groupSizeField.getAccessibleContext().setAccessibleName("Group Size");
 
 		return panel;
 	}
@@ -209,13 +213,13 @@ public class ByteViewerOptionsDialog extends DialogComponentProvider
 	}
 
 	private boolean hasValidFieldValues() {
-		if (addressInputField.getValue().length() == 0) {
+		if (addressInputField.getText().length() == 0) {
 			setStatusText("Enter an alignment address");
 			return false;
 		}
 		Address alignmentAddress = addressInputField.getAddress();
 		if (alignmentAddress == null) {
-			setStatusText("Invalid alignment address:" + addressInputField.getValue());
+			setStatusText("Invalid alignment address:" + addressInputField.getText());
 			return false;
 		}
 		BigInteger bytesPerLine = bytesPerLineField.getValue();
@@ -266,10 +270,10 @@ public class ByteViewerOptionsDialog extends DialogComponentProvider
 			JCheckBox checkBox = entry.getValue();
 			DataFormatModel model = provider.getDataFormatModel(entry.getKey());
 			if (model.validateBytesPerLine(bytesPerLine)) {
-				checkBox.setForeground(Color.BLACK);
+				checkBox.setForeground(Colors.FOREGROUND);
 			}
 			else {
-				checkBox.setForeground(Color.RED);
+				checkBox.setForeground(Messages.ERROR);
 				isBad |= checkBox.isSelected();
 			}
 		}

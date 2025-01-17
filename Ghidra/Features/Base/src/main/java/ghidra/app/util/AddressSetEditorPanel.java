@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,22 +16,23 @@
 package ghidra.app.util;
 
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.HashSet;
 import java.util.List;
 
 import javax.swing.*;
-import javax.swing.event.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 
+import docking.widgets.button.GButton;
 import docking.widgets.label.GDLabel;
+import generic.theme.GIcon;
 import ghidra.program.model.address.*;
 import ghidra.util.layout.MiddleLayout;
-import resources.ResourceManager;
+import resources.Icons;
 
 public class AddressSetEditorPanel extends JPanel {
-	private static Icon ADD_ICON = ResourceManager.loadImage("images/Plus.png");
-	private static Icon SUBTRACT_ICON = ResourceManager.loadImage("images/list-remove.png");
+	private static Icon ADD_ICON = Icons.ADD_ICON;
+	private static Icon SUBTRACT_ICON = new GIcon("icon.subtract");
 
 	private AddressInput minAddressField;
 	private AddressInput maxAddressField;
@@ -66,15 +67,7 @@ public class AddressSetEditorPanel extends JPanel {
 		JLabel minLabel = new GDLabel("Min:");
 		minLabel.setToolTipText("Enter minimum address to add or remove");
 		minAddressPanel.add(minLabel, BorderLayout.WEST);
-		minAddressField = new AddressInput();
-		minAddressField.setAddressFactory(addressFactory);
-		ChangeListener listener = new ChangeListener() {
-			@Override
-			public void stateChanged(ChangeEvent e) {
-				validateAddRemoveButton();
-			}
-		};
-		minAddressField.addChangeListener(listener);
+		minAddressField = new AddressInput(addressFactory, a -> validateAddRemoveButton());
 		minAddressPanel.add(minAddressField, BorderLayout.CENTER);
 
 		JPanel maxAddressPanel = new JPanel();
@@ -82,26 +75,14 @@ public class AddressSetEditorPanel extends JPanel {
 		JLabel maxLabel = new GDLabel("Max:");
 		maxLabel.setToolTipText("Enter maximum address to add or remove");
 		maxAddressPanel.add(maxLabel, BorderLayout.WEST);
-		maxAddressField = new AddressInput();
-		maxAddressField.setAddressFactory(addressFactory);
-		maxAddressField.addChangeListener(listener);
+		maxAddressField = new AddressInput(addressFactory, a -> validateAddRemoveButton());
 		maxAddressPanel.add(maxAddressField, BorderLayout.CENTER);
 		maxAddressPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0));
-		addRangeButton = new JButton(ADD_ICON);
-		addRangeButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				addRange();
-			}
-		});
+		addRangeButton = new GButton(ADD_ICON);
+		addRangeButton.addActionListener(e -> addRange());
 		addRangeButton.setToolTipText("Add the range to the set of included addresses");
-		subtractRangeButton = new JButton(SUBTRACT_ICON);
-		subtractRangeButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				subtractRange();
-			}
-		});
+		subtractRangeButton = new GButton(SUBTRACT_ICON);
+		subtractRangeButton.addActionListener(e -> subtractRange());
 		subtractRangeButton.setToolTipText("Remove the range from the set of included addresses");
 
 		JPanel addressPanel = new JPanel();
@@ -132,13 +113,8 @@ public class AddressSetEditorPanel extends JPanel {
 		bottomButtons = new JPanel();
 		bottomButtons.setLayout(new MiddleLayout());
 
-		removeRangeButton = new JButton("Remove Selected Range(s)");
-		removeRangeButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				removeRange();
-			}
-		});
+		removeRangeButton = new GButton("Remove Selected Range(s)");
+		removeRangeButton.addActionListener(e -> removeRange());
 
 		bottomButtons.add(removeRangeButton);
 		return bottomButtons;
@@ -149,12 +125,7 @@ public class AddressSetEditorPanel extends JPanel {
 		listModel = new AddressSetListModel(addressSet.toList());
 		list = new JList<>(listModel);
 		list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-		list.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
-			@Override
-			public void valueChanged(ListSelectionEvent e) {
-				validateRemoveButton();
-			}
-		});
+		list.getSelectionModel().addListSelectionListener(e -> validateRemoveButton());
 		JScrollPane scrollPane = new JScrollPane(list);
 		panel.setBorder(BorderFactory.createTitledBorder(
 			BorderFactory.createEmptyBorder(10, 10, 10, 10), "Included Address Ranges:"));

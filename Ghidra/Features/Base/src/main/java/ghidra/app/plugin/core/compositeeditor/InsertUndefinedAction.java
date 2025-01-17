@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,14 +18,14 @@ package ghidra.app.plugin.core.compositeeditor;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 import javax.swing.KeyStroke;
 
 import docking.ActionContext;
 import docking.action.KeyBindingData;
+import generic.theme.GIcon;
 import ghidra.program.model.data.*;
 import ghidra.util.exception.UsrException;
-import resources.ResourceManager;
 
 /**
  * Action for use in the structure data type editor.
@@ -33,8 +33,7 @@ import resources.ResourceManager;
  */
 public class InsertUndefinedAction extends CompositeEditorTableAction {
 
-	private final static ImageIcon ICON =
-		ResourceManager.loadImage("images/Plus.png");
+	private final static Icon ICON = new GIcon("icon.plugin.composite.editor.insert.undefined");
 	public final static String ACTION_NAME = "Insert Undefined Byte";
 	private final static String GROUP_NAME = COMPONENT_ACTION_GROUP;
 	private final static String DESCRIPTION = "Insert an undefined byte before the selection";
@@ -44,14 +43,16 @@ public class InsertUndefinedAction extends CompositeEditorTableAction {
 		KeyStroke.getKeyStroke(KeyEvent.VK_U, InputEvent.ALT_DOWN_MASK);
 
 	public InsertUndefinedAction(CompositeEditorProvider provider) {
-		super(provider, EDIT_ACTION_PREFIX + ACTION_NAME, GROUP_NAME, POPUP_PATH, null, ICON);
+		super(provider, ACTION_NAME, GROUP_NAME, POPUP_PATH, null, ICON);
 		setDescription(DESCRIPTION);
 		setKeyBindingData(new KeyBindingData(KEY_STROKE));
-		adjustEnablement();
 	}
 
 	@Override
 	public void actionPerformed(ActionContext context) {
+		if (!isEnabledForContext(context)) {
+			return;
+		}
 		try {
 			boolean isContiguousSelection = model.getSelection().getNumRanges() == 1;
 			if (isContiguousSelection) {
@@ -60,7 +61,8 @@ public class InsertUndefinedAction extends CompositeEditorTableAction {
 					DataType undefinedDt =
 						model.viewComposite.isPackingEnabled() ? Undefined1DataType.dataType
 								: DataType.DEFAULT;
-					DataTypeInstance dti = DataTypeInstance.getDataTypeInstance(undefinedDt, -1);
+					DataTypeInstance dti =
+						DataTypeInstance.getDataTypeInstance(undefinedDt, -1, false);
 					model.insert(index, dti.getDataType(), dti.getLength());
 				}
 			}
@@ -72,7 +74,10 @@ public class InsertUndefinedAction extends CompositeEditorTableAction {
 	}
 
 	@Override
-	public void adjustEnablement() {
+	public boolean isEnabledForContext(ActionContext context) {
+		if (hasIncompleteFieldEntry()) {
+			return false;
+		}
 		boolean enabled = false;
 		if (model.viewComposite instanceof Structure) {
 			boolean isContiguousSelection = model.getSelection().getNumRanges() == 1;
@@ -82,7 +87,7 @@ public class InsertUndefinedAction extends CompositeEditorTableAction {
 			enabled = isContiguousSelection &&
 				model.isInsertAllowed(model.getMinIndexSelected(), undefinedDt);
 		}
-		setEnabled(enabled);
+		return enabled;
 	}
 
 }

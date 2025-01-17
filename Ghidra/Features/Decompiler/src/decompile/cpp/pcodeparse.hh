@@ -13,11 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef __PCODE_SNIPPET__
-#define __PCODE_SNIPPET__
+#ifndef __PCODEPARSE_HH__
+#define __PCODEPARSE_HH__
 
 #include "pcodecompile.hh"
 #include "sleighbase.hh"
+
+namespace ghidra {
 
 // Classes for compiling a standalone snippet of pcode, given an existing sleigh language
 
@@ -71,11 +73,11 @@ class PcodeSnippet : public PcodeCompile {
   PcodeLexer lexer;
   const SleighBase *sleigh;	// Language from which we get symbols
   SymbolTree tree;		// Symbols in the local scope of the snippet  (temporaries)
-  uintb tempbase;
+  uint4 tempbase;
   int4 errorcount;
   string firsterror;
   ConstructTpl *result;
-  virtual uintb allocateTemp(void);
+  virtual uint4 allocateTemp(void);
   virtual void addSymbol(SleighSymbol *sym);
 public:  
   PcodeSnippet(const SleighBase *slgh);
@@ -87,13 +89,13 @@ public:
   virtual void reportWarning(const Location *loc, const string &msg) {}
   bool hasErrors(void) const { return (errorcount != 0); }
   const string getErrorMessage(void) const { return firsterror; }
-  void setUniqueBase(uintb val) { tempbase = val; }
-  uintb getUniqueBase(void) const { return tempbase; }
+  void setUniqueBase(uint4 val) { tempbase = val; }
+  uint4 getUniqueBase(void) const { return tempbase; }
   void clear(void);
   int lex(void);
   bool parseStream(istream& s);
   void addOperand(const string &name,int4 index);
 };
 
-
+} // End namespace ghidra
 #endif

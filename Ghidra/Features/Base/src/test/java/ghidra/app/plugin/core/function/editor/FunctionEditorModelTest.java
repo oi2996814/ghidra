@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,7 +21,7 @@ import java.util.List;
 
 import org.junit.*;
 
-import generic.test.AbstractGenericTest;
+import generic.test.AbstractGuiTest;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.util.cparser.C.ParseException;
 import ghidra.program.database.ProgramBuilder;
@@ -34,7 +34,7 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.pcode.Varnode;
 import ghidra.util.exception.InvalidInputException;
 
-public class FunctionEditorModelTest extends AbstractGenericTest {
+public class FunctionEditorModelTest extends AbstractGuiTest {
 
 	private FunctionEditorModel model;
 	private volatile boolean dataChangeCalled;
@@ -104,7 +104,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		model.setName("");
 		assertDataChangedCallback(true);
 		assertEquals("", model.getName());
-		assertEquals("void ? (void)", getSignatureText());
+		assertEquals("void FUN_00001000 (void)", getSignatureText());
 		assertTrue(!model.isValid());
 		assertEquals("Missing function name", model.getStatusText());
 	}
@@ -142,11 +142,11 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 
 	@Test
 	public void testCustomStorage() {
-		assertFalse(model.canCustomizeStorage());
+		assertFalse(model.canUseCustomStorage());
 		model.setUseCustomizeStorage(true);
-		assertTrue(model.canCustomizeStorage());
+		assertTrue(model.canUseCustomStorage());
 		model.setUseCustomizeStorage(false);
-		assertFalse(model.canCustomizeStorage());
+		assertFalse(model.canUseCustomStorage());
 	}
 
 	@Test
@@ -155,17 +155,17 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		model.setIsInLine(true);
 		assertTrue(model.isInLine());
 		assertTrue(model.isValid());
-		assertEquals("-NONE-", model.getCallFixupName());
+		assertEquals("-NONE-", model.getCallFixupChoice());
 
 		String callFixupName = model.getCallFixupNames()[0];
-		model.setCallFixupName(callFixupName);
-		assertEquals(callFixupName, model.getCallFixupName());
+		model.setCallFixupChoice(callFixupName);
+		assertEquals(callFixupName, model.getCallFixupChoice());
 		assertTrue(!model.isInLine());
 
 		model.setIsInLine(true);
 		assertTrue(model.isInLine());
 		assertTrue(model.isValid());
-		assertEquals("-NONE-", model.getCallFixupName());
+		assertEquals("-NONE-", model.getCallFixupChoice());
 
 	}
 
@@ -204,14 +204,14 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		model.addParameter();
 		assertEquals(3, model.getParameters().size());
 
-		model.setSelectedParameterRow(new int[0]);
+		model.setSelectedParameterRows(new int[0]);
 
 		// none selected, so can't remove
 		assertEquals(0, model.getSelectedParameterRows().length);
 		assertTrue(!model.canRemoveParameters());
 
 		// select the first entry
-		model.setSelectedParameterRow(new int[] { 1 });
+		model.setSelectedParameterRows(new int[] { 1 });
 
 		assertEquals(1, model.getSelectedParameterRows().length);
 		assertTrue(model.canRemoveParameters());
@@ -234,7 +234,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		assertEquals(3, model.getParameters().size());
 
 		// select the last entry
-		model.setSelectedParameterRow(new int[] { 3 });
+		model.setSelectedParameterRows(new int[] { 3 });
 
 		assertEquals(1, model.getSelectedParameterRows().length);
 		assertTrue(model.canRemoveParameters());
@@ -257,7 +257,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		assertEquals(3, model.getParameters().size());
 
 		// select the first and last entry
-		model.setSelectedParameterRow(new int[] { 1, 3 });
+		model.setSelectedParameterRows(new int[] { 1, 3 });
 
 		assertEquals(2, model.getSelectedParameterRows().length);
 		assertTrue(model.canRemoveParameters());
@@ -279,7 +279,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		assertEquals(3, model.getParameters().size());
 
 		// select all params
-		model.setSelectedParameterRow(new int[] { 1, 2, 3 });
+		model.setSelectedParameterRows(new int[] { 1, 2, 3 });
 
 		assertEquals(3, model.getSelectedParameterRows().length);
 		assertTrue(model.canRemoveParameters());
@@ -299,22 +299,22 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		model.addParameter();
 
 		// no selection, both buttons disabled
-		model.setSelectedParameterRow(new int[0]);
+		model.setSelectedParameterRows(new int[0]);
 		assertTrue(!model.canMoveParameterUp());
 		assertTrue(!model.canMoveParameterDown());
 
 		// multiple selection, both buttons disabled
-		model.setSelectedParameterRow(new int[] { 1, 2 });
+		model.setSelectedParameterRows(new int[] { 1, 2 });
 		assertTrue(!model.canMoveParameterUp());
 		assertTrue(!model.canMoveParameterDown());
 
 		// select the first param, up button disabled, down button enabled
-		model.setSelectedParameterRow(new int[] { 1 });
+		model.setSelectedParameterRows(new int[] { 1 });
 		assertTrue(!model.canMoveParameterUp());
 		assertTrue(model.canMoveParameterDown());
 
 		// select the middle row, both buttons enabled
-		model.setSelectedParameterRow(new int[] { 2 });
+		model.setSelectedParameterRows(new int[] { 2 });
 		assertTrue(model.canMoveParameterUp());
 		assertTrue(model.canMoveParameterDown());
 
@@ -338,7 +338,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		assertEquals("p3", parameters.get(2).getName());
 
 		// select the last row
-		model.setSelectedParameterRow(new int[] { 3 });
+		model.setSelectedParameterRows(new int[] { 3 });
 
 		model.moveSelectedParameterUp();
 
@@ -382,7 +382,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		assertEquals("p3", parameters.get(2).getName());
 
 		// select the first row
-		model.setSelectedParameterRow(new int[] { 1 });
+		model.setSelectedParameterRows(new int[] { 1 });
 
 		model.moveSelectedParameterDown();
 
@@ -492,9 +492,10 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 	public void testAutoStorageFix() {
 		model.addParameter();
 		ParamInfo paramInfo = model.getParameters().get(0);// param_0@Stack[0x4]:4
+		model.setParameterFormalDataType(paramInfo, IntegerDataType.dataType);
 		model.setUseCustomizeStorage(true);
 		Varnode v = paramInfo.getStorage().getFirstVarnode();
-		assertEquals(1, v.getSize());
+		assertEquals(4, v.getSize());
 		assertEquals(4, v.getOffset());
 		model.setParameterFormalDataType(paramInfo, new Undefined8DataType());
 		assertTrue(model.isValid());
@@ -507,9 +508,9 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 	public void testAutoStorageFixReg() throws Exception {
 		model.addParameter();
 		ParamInfo paramInfo = model.getParameters().get(0);
+		model.setParameterFormalDataType(paramInfo, new Undefined2DataType());
 		model.setUseCustomizeStorage(true);
 
-		model.setParameterFormalDataType(paramInfo, new Undefined2DataType());
 		assertTrue(model.getStatusText(), model.isValid());
 		Varnode v = paramInfo.getStorage().getFirstVarnode();
 		assertEquals(2, v.getSize());
@@ -661,7 +662,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 	public void testParsingSignatureWithForcedIndirect() throws Exception {
 		setupX64windows();
 
-		assertFalse(model.canCustomizeStorage());
+		assertFalse(model.canUseCustomStorage());
 
 		assertEquals("void bob (void)", getSignatureText());
 		assertEquals(0, model.getParameters().size());
@@ -707,7 +708,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 	public void testParsingSignatureWithForcedIndirectAndAuto() throws Exception {
 		setupX64windows();
 
-		assertFalse(model.canCustomizeStorage());
+		assertFalse(model.canUseCustomStorage());
 
 		model.setCallingConventionName("__thiscall");
 
@@ -826,7 +827,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		assertEquals(1, fun.getParameterCount());
 		model = new FunctionEditorModel(null /* use default parser*/, fun);
 		model.setModelChangeListener(new MyModelChangeListener());
-		model.setSelectedParameterRow(new int[] { 1 });
+		model.setSelectedParameterRows(new int[] { 1 });
 		model.removeParameters();
 		model.apply();
 		assertEquals(0, fun.getParameterCount());
@@ -871,13 +872,41 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 	}
 
 	@Test
+	public void testSettingReturnStorageTooSmall() throws Exception {
+		model.setFormalReturnType(ByteDataType.dataType);
+		model.setUseCustomizeStorage(true);
+		model.setFormalReturnType(WordDataType.dataType);
+		assertTrue(model.isValid()); // should morph to correct sized reg if possible
+		VariableStorage returnStorage = model.getReturnStorage();
+		assertTrue(returnStorage.isRegisterStorage());
+		Register reg = returnStorage.getRegister();
+		assertEquals(program.getRegister("AX"), reg);
+		model.setReturnStorage(new VariableStorage(program, program.getRegister("AL"))); // too big allowed
+		assertTrue(!model.isValid()); // too small for word
+	}
+
+	@Test
+	public void testSettingParamStorageTooSmall() throws Exception {
+		model.setCallingConventionName(null);
+		model.setSignatureFieldText("int joe(int a)");
+		model.parseSignatureFieldText();
+		model.apply();
+		ParamInfo paramInfo = model.getParameters().get(0);
+		VariableStorage storage = paramInfo.getStorage();
+		model.setUseCustomizeStorage(true);
+		model.setParameterStorage(paramInfo,
+			new VariableStorage(program, storage.getMinAddress(), 2));
+		assertTrue(!model.isValid()); // too small for 4-byte int
+	}
+
+	@Test
 	public void testSettingReturnStorageTooBig() throws Exception {
 		model.setFormalReturnType(ByteDataType.dataType);
 		VariableStorage returnStorage = model.getReturnStorage();
 		model.setUseCustomizeStorage(true);
 		Register register = returnStorage.getRegister();
 		model.setReturnStorage(new VariableStorage(program, register.getBaseRegister()));
-		assertTrue(!model.isValid());
+		assertTrue(model.isValid()); // too big is allowed
 	}
 
 	@Test
@@ -891,7 +920,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		model.setUseCustomizeStorage(true);
 		model.setParameterStorage(paramInfo,
 			new VariableStorage(program, storage.getMinAddress(), storage.size() * 2));
-		assertTrue(!model.isValid());
+		assertTrue(model.isValid()); // too big is allowed
 	}
 
 	@Test
@@ -1018,7 +1047,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		param = model.getParameters().get(3);
 		assertEquals("param_2", param.getName());
 		assertTrue(DefaultDataType.dataType.isEquivalent(param.getDataType()));
-		assertEquals("Stack[0xc]:1", param.getStorage().toString());
+		assertEquals("<UNASSIGNED>", param.getStorage().toString());
 
 		model.setParameterFormalDataType(param, struct);
 
@@ -1128,7 +1157,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		param = model.getParameters().get(3);
 		assertEquals("param_2", param.getName());
 		assertTrue(DefaultDataType.dataType.isEquivalent(param.getDataType()));
-		assertEquals("R9B:1", param.getStorage().toString());
+		assertEquals("<UNASSIGNED>", param.getStorage().toString());
 
 		model.setParameterFormalDataType(param, struct);
 
@@ -1675,7 +1704,7 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 		model.parseSignatureFieldText();
 		assertEquals(3, model.getParameters().size());
 
-		model.setSelectedParameterRow(new int[] { 1, 3 });
+		model.setSelectedParameterRows(new int[] { 1, 3 });
 
 		model.setCallingConventionName("__thiscall");
 		assertEquals(4, model.getParameters().size());
@@ -1882,14 +1911,14 @@ public class FunctionEditorModelTest extends AbstractGenericTest {
 
 	@Test
 	public void testCantDeleteReturnValueInTable() {
-		model.setSelectedParameterRow(new int[] { 0 });// select return value row
+		model.setSelectedParameterRows(new int[] { 0 });// select return value row
 		assertFalse(model.canRemoveParameters());
 	}
 
 	@Test
 	public void testCantMoveThisParameterUpOrDown() {
 		model.setCallingConventionName("__thiscall");
-		model.setSelectedParameterRow(new int[] { 1 });// select this parameter row
+		model.setSelectedParameterRows(new int[] { 1 });// select this parameter row
 		assertFalse(model.canMoveParameterUp());
 		assertFalse(model.canMoveParameterDown());
 

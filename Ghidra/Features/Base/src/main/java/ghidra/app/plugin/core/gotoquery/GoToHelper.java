@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 package ghidra.app.plugin.core.gotoquery;
+
+import static ghidra.framework.main.DataTreeDialogType.*;
 
 import java.util.Stack;
 
@@ -40,6 +42,7 @@ import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.*;
 import ghidra.util.HelpLocation;
+import ghidra.util.Swing;
 import ghidra.util.table.AddressArrayTableModel;
 
 public class GoToHelper {
@@ -80,6 +83,10 @@ public class GoToHelper {
 	}
 
 	public boolean goTo(final Navigatable navigatable, ProgramLocation loc, Program program) {
+		return Swing.runNow(() -> doGoTo(navigatable, loc, program));
+	}
+
+	private boolean doGoTo(final Navigatable navigatable, ProgramLocation loc, Program program) {
 		if (loc == null || loc.getAddress() == null) {
 			return false;
 		}
@@ -116,17 +123,6 @@ public class GoToHelper {
 			return false;
 		}
 
-// If we want the goto to request focus then we will need to add a new parameter - you don't always
-//       	want to request focus.
-//       	// sometimes this gets call directly after creating a new provider window.  Need to
-//       	// request focus in an invokeLater to give WindowManager a chance to create the component
-//       	// hierarchy tree.
-//       	SwingUtilities.invokeLater(new Runnable() {
-//			public void run() {
-//		       	navigatable.requestFocus();
-//			}
-//		});
-
 		saveLocation(navigatable);
 
 		return true;
@@ -148,6 +144,7 @@ public class GoToHelper {
 		if (loc != null) {
 			return loc;
 		}
+
 		if (gotoAddress.isStackAddress() || gotoAddress.isRegisterAddress()) {
 			// Convert stack/register address into variable address
 			Function func = program.getFunctionManager().getFunctionContaining(currentAddress);
@@ -195,7 +192,7 @@ public class GoToHelper {
 	 * @return true if navigation was successful or a list of possible linkage locations
 	 * was displayed.
 	 */
-	private boolean goToExternalLinkage(Navigatable nav, ExternalLocation externalLoc,
+	protected boolean goToExternalLinkage(Navigatable nav, ExternalLocation externalLoc,
 			boolean popupAllowed) {
 		if (externalLoc == null) {
 			return false;
@@ -217,8 +214,8 @@ public class GoToHelper {
 				AddressArrayTableModel model = new AddressArrayTableModel("Goto: ", tool, program,
 					externalLinkageAddresses, null);
 				TableService service = tool.getService(TableService.class);
-				service.showTable("Goto " + externalSym.getName(true) + " linkage location", "Goto",
-					model, "Go To", nav);
+				service.showTable("Goto " + externalSym.getName(true) + " linkage location",
+					"Go To Results", model, "Go To", nav);
 				return true;
 			}
 			tool.setStatusInfo(
@@ -347,7 +344,7 @@ public class GoToHelper {
 		String extProgName = externalLocation.getLibraryName();
 		if (Library.UNKNOWN.equals(extProgName)) {
 			tool.setStatusInfo(" External location refers to " + Library.UNKNOWN +
-				" library. Unable to " + "perform navigation.", true);
+				" library. Unable to perform navigation.", true);
 			return null;
 		}
 
@@ -391,6 +388,7 @@ public class GoToHelper {
 		if (nameStack == null) {
 			return null; // name is not valid for external program
 		}
+
 		StringBuilder buf = new StringBuilder();
 		while (!nameStack.isEmpty()) {
 			buf.append(nameStack.pop());
@@ -439,9 +437,9 @@ public class GoToHelper {
 		if (result == OptionDialog.CANCEL_OPTION) {
 			return;
 		}
-		final DataTreeDialog dialog = new DataTreeDialog(null,
-			"Choose External Program (" + extProgName + ")", DataTreeDialog.OPEN);
 
+		DataTreeDialog dialog = new DataTreeDialog(null,
+			"Choose External Program (" + extProgName + ")", OPEN);
 		dialog.setSearchText(extProgName);
 		dialog.setHelpLocation(new HelpLocation("ReferencesPlugin", "ChooseExternalProgram"));
 		tool.showDialog(dialog);
@@ -453,7 +451,7 @@ public class GoToHelper {
 		ExternalManager externalManager = program.getExternalManager();
 		String externalLibraryPath = externalManager.getExternalLibraryPath(extProgName);
 		if (!pathName.equals(externalLibraryPath)) {
-			Command cmd = new SetExternalNameCmd(extProgName, domainFile.getPathname());
+			Command<Program> cmd = new SetExternalNameCmd(extProgName, domainFile.getPathname());
 			tool.execute(cmd, program);
 		}
 	}
@@ -461,10 +459,6 @@ public class GoToHelper {
 	private Program findGoToProgram(Program currentProgram, Address address) {
 		// we need to try and find a suitable program
 		Program goToProgram = findProgramContaining(currentProgram, address);
-		if (goToProgram == null) {
-			return null;
-		}
-
 		return goToProgram;
 	}
 

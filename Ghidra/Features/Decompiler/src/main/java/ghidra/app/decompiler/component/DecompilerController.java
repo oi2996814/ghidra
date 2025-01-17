@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,6 +24,7 @@ import com.google.common.cache.CacheBuilder;
 import docking.widgets.fieldpanel.support.ViewerPosition;
 import ghidra.app.decompiler.*;
 import ghidra.app.plugin.core.decompile.DecompilerClipboardProvider;
+import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.pcode.HighFunction;
@@ -33,10 +34,13 @@ import ghidra.util.bean.field.AnnotatedTextFieldElement;
 import utility.function.Callback;
 
 /**
- * Coordinates the interactions between the DecompilerProvider, DecompilerPanel, and the DecompilerManager
+ * Coordinates the interactions between the DecompilerProvider, DecompilerPanel, and the
+ * DecompilerManager
  */
 
 public class DecompilerController {
+
+	private ServiceProvider serviceProvider;
 	private DecompilerPanel decompilerPanel;
 	private DecompilerManager decompilerMgr;
 	private final DecompilerCallbackHandler callbackHandler;
@@ -45,8 +49,10 @@ public class DecompilerController {
 	private Cache<Function, DecompileResults> decompilerCache;
 	private int cacheSize;
 
-	public DecompilerController(DecompilerCallbackHandler handler, DecompileOptions options,
+	public DecompilerController(ServiceProvider serviceProvider, DecompilerCallbackHandler handler,
+			DecompileOptions options,
 			DecompilerClipboardProvider clipboard) {
+		this.serviceProvider = serviceProvider;
 		this.cacheSize = options.getCacheSize();
 		this.callbackHandler = handler;
 		decompilerCache = buildCache();
@@ -55,7 +61,10 @@ public class DecompilerController {
 			new DecompilerPanel(this, options, clipboard, decompilerMgr.getTaskMonitorComponent());
 
 		decompilerPanel.setHoverMode(true);
+	}
 
+	public ServiceProvider getServiceProvider() {
+		return serviceProvider;
 	}
 
 	public DecompilerPanel getDecompilerPanel() {
@@ -67,8 +76,8 @@ public class DecompilerController {
 //==================================================================================================
 
 	/**
-	 * Called by the provider when the provider is disposed.  Once dispose is called, it should
-	 * never be used again.
+	 * Called by the provider when the provider is disposed. Once dispose is called, it should never
+	 * be used again.
 	 */
 	public void dispose() {
 		clearCache();
@@ -77,8 +86,8 @@ public class DecompilerController {
 	}
 
 	/**
-	 * clears all internal state and releases all resources.  Called when the provider is no
-	 * longer visible or the currently displayed program is closed.
+	 * clears all internal state and releases all resources. Called when the provider is no longer
+	 * visible or the currently displayed program is closed.
 	 */
 	public void clear() {
 		currentSelection = null;
@@ -87,14 +96,14 @@ public class DecompilerController {
 	}
 
 	/**
-	 * Shows the function containing the given location in the decompilerPanel.  Also, positions the
+	 * Shows the function containing the given location in the decompilerPanel. Also, positions the
 	 * decompilerPanel's cursor to the closest equivalent position. If the decompilerPanel is
-	 * already displaying the function, then only the cursor is repositioned.  To force a
+	 * already displaying the function, then only the cursor is repositioned. To force a
 	 * re-decompile use {@link #refreshDisplay(Program, ProgramLocation, File)}.
 	 *
 	 * @param program the program for the given location
-	 * @param location the location containing the function to be displayed and the location in
-	 * that function to position the cursor.
+	 * @param location the location containing the function to be displayed and the location in that
+	 *            function to position the cursor.
 	 * @param viewerPosition the viewer position
 	 */
 	public void display(Program program, ProgramLocation location, ViewerPosition viewerPosition) {
@@ -138,6 +147,7 @@ public class DecompilerController {
 
 	/**
 	 * Sets new decompiler options and triggers a new decompile.
+	 * 
 	 * @param decompilerOptions the options
 	 */
 	public void setOptions(DecompileOptions decompilerOptions) {
@@ -159,8 +169,8 @@ public class DecompilerController {
 	}
 
 	/**
-	 * Resets the native decompiler process.  Call this method when the decompiler's view
-	 * of a program has been invalidated, such as when a new overlay space has been added.
+	 * Resets the native decompiler process. Call this method when the decompiler's view of a
+	 * program has been invalidated, such as when a new overlay space has been added.
 	 */
 	public void resetDecompiler() {
 		decompilerMgr.resetDecompiler();
@@ -172,6 +182,7 @@ public class DecompilerController {
 
 	/**
 	 * Called by the DecompilerManager to update the currently displayed DecompileData
+	 * 
 	 * @param decompileData the new data
 	 */
 	public void setDecompileData(DecompileData decompileData) {
@@ -199,15 +210,16 @@ public class DecompilerController {
 //==================================================================================================
 
 	public void doWhenNotBusy(Callback c) {
-		callbackHandler.doWheNotBusy(c);
+		callbackHandler.doWhenNotBusy(c);
 	}
 
 	/**
 	 * Always decompiles the function containing the given location before positioning the
 	 * decompilerPanel's cursor to the closest equivalent position.
+	 * 
 	 * @param program the program for the given location
-	 * @param location the location containing the function to be displayed and the location in
-	 * that function to position the cursor.
+	 * @param location the location containing the function to be displayed and the location in that
+	 *            function to position the cursor.
 	 * @param debugFile the debug file
 	 */
 	public void refreshDisplay(Program program, ProgramLocation location, File debugFile) {
@@ -307,6 +319,12 @@ public class DecompilerController {
 			               .maximumSize(cacheSize)
 			               .build();
 		//@formatter:on
+	}
+
+	// for testing
+	void setCache(Cache<Function, DecompileResults> cache) {
+		this.decompilerCache.invalidateAll();
+		this.decompilerCache = cache;
 	}
 
 	public void clearCache() {

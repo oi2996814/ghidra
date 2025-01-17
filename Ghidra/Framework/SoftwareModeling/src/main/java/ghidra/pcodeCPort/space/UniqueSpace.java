@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,29 +15,33 @@
  */
 package ghidra.pcodeCPort.space;
 
-import ghidra.pcodeCPort.translate.*;
+import static ghidra.pcode.utils.SlaFormat.*;
 
-import java.io.PrintStream;
+import java.io.IOException;
 
+import ghidra.pcodeCPort.translate.Translate;
+import ghidra.program.model.lang.SpaceNames;
+import ghidra.program.model.pcode.Encoder;
 
 public class UniqueSpace extends AddrSpace {
-	public UniqueSpace( Translate t, String nm, int ind, int fl ) {
-		super( t, spacetype.IPTR_INTERNAL, nm, 4, 1, ind, fl, 0 );
+	public UniqueSpace(Translate t, int ind, int fl) {
+		super(t, spacetype.IPTR_INTERNAL, SpaceNames.UNIQUE_SPACE_NAME,
+			SpaceNames.UNIQUE_SPACE_SIZE, 1, ind, fl, 0);
 
-		setFlags( hasphysical );
+		setFlags(hasphysical);
 	}
 
-	public UniqueSpace( Translate t ) {
-		super( t, spacetype.IPTR_INTERNAL );
+	public UniqueSpace(Translate t) {
+		super(t, spacetype.IPTR_INTERNAL);
 
-		setFlags( hasphysical );
+		setFlags(hasphysical);
 	}
 
 	@Override
-    public void saveXml( PrintStream s ) {
-		s.print( "<space_unique" );
-		save_basic_attributes( s );
-		s.println( "/>" );
+	public void encode(Encoder encoder) throws IOException {
+		encoder.openElement(ELEM_SPACE_UNIQUE);
+		encode_basic_attributes(encoder);
+		encoder.closeElement(ELEM_SPACE_UNIQUE);
 	}
 
 }

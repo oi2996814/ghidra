@@ -15,12 +15,13 @@
  */
 package docking.help;
 
-import java.awt.*;
+import java.awt.Component;
+import java.awt.Window;
 import java.awt.event.*;
+import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.net.URL;
 import java.util.*;
-import java.util.List;
 import java.util.regex.*;
 
 import javax.help.*;
@@ -200,12 +201,12 @@ class HelpViewSearcher {
 	private JEditorPane getHTMLEditorPane(JHelpContentViewer contentViewer) {
 		//
 		// Intimate Knowledge - construction of the viewer:
-		// 
+		//
 		// -BorderLayout
 		// -JScrollPane
 		// 		-Viewport
 		//      	-JHEditorPane extends JEditorPane
-		// 				
+		//
 		//
 		Component[] components = contentViewer.getComponents();
 		JScrollPane scrollPane = (JScrollPane) components[0];
@@ -218,12 +219,12 @@ class HelpViewSearcher {
 	}
 
 	private void clearHighlights() {
-		((TextHelpModel) helpModel).setHighlights(new DefaultHighlight[0]);
+		((TextHelpModel) helpModel).removeAllHighlights();
 	}
 
 //==================================================================================================
 // Inner Classes
-//==================================================================================================	
+//==================================================================================================
 
 	private class FindDialogAction extends AbstractAction {
 
@@ -291,8 +292,8 @@ class HelpViewSearcher {
 			}
 
 			try {
-				Rectangle rectangle = htmlEditorPane.modelToView(start);
-				htmlEditorPane.scrollRectToVisible(rectangle);
+				Rectangle2D rectangle = htmlEditorPane.modelToView2D(start);
+				htmlEditorPane.scrollRectToVisible(rectangle.getBounds());
 			}
 			catch (BadLocationException e) {
 				// shouldn't happen

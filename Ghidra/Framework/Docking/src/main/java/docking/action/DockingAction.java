@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,13 +25,13 @@ import javax.swing.*;
 
 import docking.*;
 import docking.widgets.EmptyBorderButton;
+import generic.theme.GIcon;
 import ghidra.util.*;
 import ghidra.util.datastruct.WeakDataStructureFactory;
 import ghidra.util.datastruct.WeakSet;
 import ghidra.util.exception.AssertException;
+import gui.event.MouseBinding;
 import resources.ResourceManager;
-import resources.icons.FileBasedIcon;
-import resources.icons.ImageIconWrapper;
 import utilities.util.reflection.ReflectionUtilities;
 
 /**
@@ -41,10 +41,10 @@ import utilities.util.reflection.ReflectionUtilities;
  * the entire application.
  * <p>
  * DockingActions can be invoked from the global menu, a popup menu, a toolbar, and/or a keybinding,
- * depending on whether or not menuBarData, popupMenuData, toolBarData, and/or keyBindingData have 
+ * depending on whether or not menuBarData, popupMenuData, toolBarData, and/or keyBindingData have
  * been set.
  * <p>
- * <b> 
+ * <b>
  * Implementors of this class should override {@link #actionPerformed(ActionContext)}.
  * </b>
  * <p>
@@ -85,8 +85,10 @@ public abstract class DockingAction implements DockingActionIf {
 	private Predicate<ActionContext> validContextPredicate;
 	private boolean shouldAddToAllWindows = false;
 	private Class<? extends ActionContext> addToWindowWhenContextClass = null;
+	private Class<? extends ActionContext> contextClass = ActionContext.class;
 
-	private boolean supportsDefaultToolContext;
+	// by default, actions only work on the active provider
+	private boolean supportsDefaultContext = false;
 
 	public DockingAction(String name, String owner) {
 		this.name = name;
@@ -199,12 +201,12 @@ public abstract class DockingAction implements DockingActionIf {
 	 * <P>
 	 * If the client wants the action on all windows, then they can call {@link #shouldAddToAllWindows}
 	 * <P>
-	 * If the client wants the action to be on a window only when the window can produce 
-	 * a certain context type, the the client should call 
+	 * If the client wants the action to be on a window only when the window can produce
+	 * a certain context type, then the client should call
 	 * {@link #addToWindowWhen(Class)}
 	 * <P>
 	 * Otherwise, by default, the action will only be on the main window.
-	 * 
+	 *
 	 */
 	@Override
 	public final boolean shouldAddToWindow(boolean isMainWindow, Set<Class<?>> contextTypes) {
@@ -212,7 +214,7 @@ public abstract class DockingAction implements DockingActionIf {
 		if (menuBarData == null && toolBarData == null) {
 			return false;
 		}
-		
+
 		// clients can specify that the action should be on all windows.
 		if (shouldAddToAllWindows) {
 			return true;
@@ -243,7 +245,15 @@ public abstract class DockingAction implements DockingActionIf {
 	}
 
 	/**
-	 * Signals the the help system that this action does not need a help entry.   Some actions
+	 * Returns the help location for this action
+	 * @return the help location for this action
+	 */
+	public HelpLocation getHelpLocation() {
+		return DockingWindowManager.getHelpService().getHelpLocation(this);
+	}
+
+	/**
+	 * Signals the help system that this action does not need a help entry.   Some actions
 	 * are so obvious that they do not require help, such as an action that renames a file.
 	 * <p>
 	 * The method should be sparsely used, as most actions should provide help.
@@ -259,16 +269,6 @@ public abstract class DockingAction implements DockingActionIf {
 		}
 		isEnabled = newValue;
 		firePropertyChanged(ENABLEMENT_PROPERTY, !isEnabled, isEnabled);
-	}
-
-	@Override
-	public void setSupportsDefaultToolContext(boolean newValue) {
-		supportsDefaultToolContext = newValue;
-	}
-
-	@Override
-	public boolean supportsDefaultToolContext() {
-		return supportsDefaultToolContext;
 	}
 
 	@Override
@@ -304,7 +304,11 @@ public abstract class DockingAction implements DockingActionIf {
 			String text = menuData.getMenuItemName();
 			String trimmed = StringUtilities.trimMiddle(text, 50);
 			menuItem.setText(trimmed);
-			menuItem.setIcon(menuData.getMenuIcon());
+			Icon icon = menuData.getMenuIcon();
+			menuItem.setIcon(icon);
+			if (icon != null) {
+				menuItem.setDisabledIcon(ResourceManager.getDisabledIcon(icon));
+			}
 			menuItem.setMnemonic(menuData.getMnemonic());
 		}
 		else {
@@ -318,6 +322,10 @@ public abstract class DockingAction implements DockingActionIf {
 		menuItem.setEnabled(isEnabled);
 
 		return menuItem;
+	}
+
+	private MouseBinding getMouseBinding() {
+		return keyBindingData == null ? null : keyBindingData.getMouseBinding();
 	}
 
 	@Override
@@ -342,7 +350,6 @@ public abstract class DockingAction implements DockingActionIf {
 
 	@Override
 	public void setKeyBindingData(KeyBindingData newKeyBindingData) {
-
 		if (!supportsKeyBinding(newKeyBindingData)) {
 			return;
 		}
@@ -357,6 +364,11 @@ public abstract class DockingAction implements DockingActionIf {
 		firePropertyChanged(KEYBINDING_DATA_PROPERTY, oldData, keyBindingData);
 	}
 
+	// this allows framework classes to directly set the default value
+	protected void setDefaultKeyBindingData(KeyBindingData kbd) {
+		defaultKeyBindingData = kbd;
+	}
+
 	private boolean supportsKeyBinding(KeyBindingData kbData) {
 
 		KeyBindingType type = getKeyBindingType();
@@ -369,8 +381,8 @@ public abstract class DockingAction implements DockingActionIf {
 			precedence = kbData.getKeyBindingPrecedence();
 		}
 
-		if (precedence == KeyBindingPrecedence.ReservedActionsLevel) {
-			return true; // reserved actions are special
+		if (precedence == KeyBindingPrecedence.SystemActionsLevel) {
+			return true; // system actions are special
 		}
 
 		// log a trace message instead of throwing an exception, as to not break any legacy code
@@ -380,11 +392,32 @@ public abstract class DockingAction implements DockingActionIf {
 
 	@Override
 	public void setUnvalidatedKeyBindingData(KeyBindingData newKeyBindingData) {
+		if (Objects.equals(keyBindingData, newKeyBindingData)) {
+			return;
+		}
+
 		KeyBindingData oldData = keyBindingData;
 		keyBindingData = newKeyBindingData;
 		firePropertyChanged(KEYBINDING_DATA_PROPERTY, oldData, keyBindingData);
 	}
 
+	@Override
+	public Class<? extends ActionContext> getContextClass() {
+		return contextClass;
+	}
+
+	@Override
+	public boolean supportsDefaultContext() {
+		return supportsDefaultContext;
+	}
+
+	@Override
+	public void setContextClass(Class<? extends ActionContext> type,
+			boolean supportsDefaultContext) {
+		this.contextClass = type;
+		this.supportsDefaultContext = supportsDefaultContext;
+		validContextPredicate = ac -> contextClass.isInstance(ac);
+	}
 //==================================================================================================
 // Non interface methods
 //==================================================================================================
@@ -433,8 +466,8 @@ public abstract class DockingAction implements DockingActionIf {
 	 * other actions are prevented from using the same KeyStroke as a reserved keybinding.
 	 * @param keyStroke the keystroke to be used for the keybinding
 	 */
-	void createReservedKeyBinding(KeyStroke keyStroke) {
-		KeyBindingData data = KeyBindingData.createReservedKeyBindingData(keyStroke);
+	void createSystemKeyBinding(KeyStroke keyStroke) {
+		KeyBindingData data = KeyBindingData.createSystemKeyBindingData(keyStroke);
 		setKeyBindingData(data);
 	}
 
@@ -478,17 +511,27 @@ public abstract class DockingAction implements DockingActionIf {
 			buffer.append("        MENU GROUP:        ").append(menuBarData.getMenuGroup());
 			buffer.append('\n');
 
+			String menuSubGroup = menuBarData.getMenuSubGroup();
+			if (menuSubGroup != null) {
+				buffer.append("        MENU SUB-GROUP:        ").append(menuSubGroup);
+				buffer.append('\n');
+			}
+
 			String parentGroup = menuBarData.getParentMenuGroup();
 			if (parentGroup != null) {
 				buffer.append("        PARENT GROUP:         ").append(parentGroup);
 				buffer.append('\n');
 			}
 
-			Icon icon = menuBarData.getMenuIcon();
-			if (icon != null && icon instanceof ImageIconWrapper) {
-				ImageIconWrapper wrapper = (ImageIconWrapper) icon;
-				String filename = wrapper.getFilename();
-				buffer.append("        MENU ICON:           ").append(filename);
+			String iconName = getIconName(menuBarData.getMenuIcon());
+			if (iconName != null) {
+				buffer.append("        MENU ICON:     ").append(iconName);
+				buffer.append('\n');
+			}
+
+			String iconId = getIconId(menuBarData.getMenuIcon());
+			if (iconId != null) {
+				buffer.append("        MENU ICON ID:     ").append(iconId);
 				buffer.append('\n');
 			}
 		}
@@ -513,11 +556,15 @@ public abstract class DockingAction implements DockingActionIf {
 				buffer.append('\n');
 			}
 
-			Icon icon = popupMenuData.getMenuIcon();
-			if (icon != null && icon instanceof ImageIconWrapper) {
-				ImageIconWrapper wrapper = (ImageIconWrapper) icon;
-				String filename = wrapper.getFilename();
-				buffer.append("        POPUP ICON:         ").append(filename);
+			String iconName = getIconName(popupMenuData.getMenuIcon());
+			if (iconName != null) {
+				buffer.append("        POPUP ICON:     ").append(iconName);
+				buffer.append('\n');
+			}
+
+			String iconId = getIconId(popupMenuData.getMenuIcon());
+			if (iconId != null) {
+				buffer.append("        POPUP ICON ID:     ").append(iconId);
 				buffer.append('\n');
 			}
 		}
@@ -525,27 +572,29 @@ public abstract class DockingAction implements DockingActionIf {
 		if (toolBarData != null) {
 			buffer.append("        TOOLBAR GROUP:  ").append(toolBarData.getToolBarGroup());
 			buffer.append('\n');
-			Icon icon = toolBarData.getIcon();
-			if (icon != null) {
-				if (icon instanceof FileBasedIcon) {
-					FileBasedIcon wrapper = (FileBasedIcon) icon;
-					String filename = wrapper.getFilename();
-					buffer.append("        TOOLBAR ICON:     ").append(filename);
-					buffer.append('\n');
-				}
-				else if (icon instanceof ImageIcon) {
-					ImageIcon ii = (ImageIcon) icon;
-					String text = ii.getDescription();
-					buffer.append("        TOOLBAR ICON:     ").append(text);
-					buffer.append('\n');
-				}
+
+			String iconName = getIconName(toolBarData.getIcon());
+			if (iconName != null) {
+				buffer.append("        TOOLBAR ICON:     ").append(iconName);
+				buffer.append('\n');
+			}
+
+			String iconId = getIconId(toolBarData.getIcon());
+			if (iconId != null) {
+				buffer.append("        TOOLBAR ICON ID:     ").append(iconId);
+				buffer.append('\n');
 			}
 		}
 
 		KeyStroke keyStroke = getKeyBinding();
 		if (keyStroke != null) {
-			buffer.append("        KEYBINDING:          ").append(keyStroke.toString());
+			buffer.append("        KEYBINDING:          ").append(keyStroke);
 			buffer.append('\n');
+		}
+
+		MouseBinding mouseBinding = getMouseBinding();
+		if (mouseBinding != null) {
+			buffer.append("        MOUSE BINDING:       ").append(mouseBinding);
 		}
 
 		String inception = getInceptionInformation();
@@ -559,6 +608,30 @@ public abstract class DockingAction implements DockingActionIf {
 		}
 
 		return buffer.toString();
+	}
+
+	private String getIconId(Icon icon) {
+		if (icon instanceof GIcon gIcon) {
+			return gIcon.getId();
+		}
+		return null;
+	}
+
+	private String getIconName(Icon icon) {
+		if (icon == null) {
+			return null;
+		}
+
+		String iconName = ResourceManager.getIconName(icon);
+		if (iconName == null) {
+			return null;
+		}
+
+		int index = iconName.lastIndexOf('/');
+		if (index != -1) {
+			return iconName.substring(index + 1);
+		}
+		return iconName;
 	}
 
 	public void firePropertyChanged(String propertyName, Object oldValue, Object newValue) {
@@ -579,10 +652,10 @@ public abstract class DockingAction implements DockingActionIf {
 	/**
 	 * Sets a predicate for dynamically determining the action's enabled state.  If this
 	 * predicate is not set, the action's enable state must be controlled directly using the
-	 * {@link DockingAction#setEnabled(boolean)} method. See 
+	 * {@link DockingAction#setEnabled(boolean)} method. See
 	 * {@link DockingActionIf#isEnabledForContext(ActionContext)}
-	 *  
-	 * @param predicate the predicate that will be used to dynamically determine an action's 
+	 *
+	 * @param predicate the predicate that will be used to dynamically determine an action's
 	 * enabled state.
 	 */
 	public void enabledWhen(Predicate<ActionContext> predicate) {
@@ -592,10 +665,10 @@ public abstract class DockingAction implements DockingActionIf {
 	/**
 	 * Sets a predicate for dynamically determining if this action should be included in
 	 * an impending pop-up menu.  If this predicate is not set, the action's will be included
-	 * in an impending pop-up, if it is enabled. See 
+	 * in an impending pop-up, if it is enabled. See
 	 * {@link DockingActionIf#isAddToPopup(ActionContext)}
-	 *  
-	 * @param predicate the predicate that will be used to dynamically determine an action's 
+	 *
+	 * @param predicate the predicate that will be used to dynamically determine an action's
 	 * enabled state.
 	 */
 	public void popupWhen(Predicate<ActionContext> predicate) {
@@ -603,10 +676,10 @@ public abstract class DockingAction implements DockingActionIf {
 	}
 
 	/**
-	 * Sets a predicate for dynamically determining if this action is valid for the current 
+	 * Sets a predicate for dynamically determining if this action is valid for the current
 	 * {@link ActionContext}.  See {@link DockingActionIf#isValidContext(ActionContext)}
-	 *  
-	 * @param predicate the predicate that will be used to dynamically determine an action's 
+	 *
+	 * @param predicate the predicate that will be used to dynamically determine an action's
 	 * validity for a given {@link ActionContext}
 	 */
 	public void validContextWhen(Predicate<ActionContext> predicate) {
@@ -616,18 +689,18 @@ public abstract class DockingAction implements DockingActionIf {
 	/**
 	 * Sets the ActionContext class for when this action should be added to a window
 	 * <P>
-	 * If this is set, the the action will only be added to windows that have providers
+	 * If this is set, then the action will only be added to windows that have providers
 	 * that can produce an ActionContext that is appropriate for this action.
 	 * <P>
-	 * @param contextClass the ActionContext class required to be producible by a
-	 * provider that is hosted in that window before this action is added to that 
-	 * window. 
-	 * 
+	 * @param addToWindowContextClass the ActionContext class required to be producible by a
+	 * provider that is hosted in that window before this action is added to that
+	 * window.
+	 *
 	 */
-	public void addToWindowWhen(Class<? extends ActionContext> contextClass) {
-		addToWindowWhenContextClass = contextClass;
+	public void addToWindowWhen(Class<? extends ActionContext> addToWindowContextClass) {
+		addToWindowWhenContextClass = addToWindowContextClass;
 	}
-	
+
 	/**
 	 * Tells this action to add itself to all windows
 	 * <P>
@@ -664,5 +737,5 @@ public abstract class DockingAction implements DockingActionIf {
 		String classInfo = trace[0].toString();
 		return classInfo;
 	}
-	
+
 }

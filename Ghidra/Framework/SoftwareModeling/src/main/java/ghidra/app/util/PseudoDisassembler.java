@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -71,6 +71,8 @@ public class PseudoDisassembler {
 
 	private boolean respectExecuteFlag = false;
 
+	private int lastCheckValidDisassemblyCount; // number of last instructions disassembled
+
 	/**
 	 * Create a pseudo disassembler for the given program.
 	 */
@@ -93,6 +95,14 @@ public class PseudoDisassembler {
 	 */
 	public void setMaxInstructions(int maxNumInstructions) {
 		maxInstructions = maxNumInstructions;
+	}
+	
+	/**
+	 * Get the last number of disassembled instructions
+	 * or the number of initial contiguous instruction if requireContiguous is true
+	 */
+	public int getLastCheckValidInstructionCount() {
+		return lastCheckValidDisassemblyCount;
 	}
 
 	/**
@@ -252,7 +262,7 @@ public class PseudoDisassembler {
 	 * 
 	 * @param addr location to get a PseudoData item for
 	 * @param dt the data type to be applied
-	 * @return PsuedoData that acts like Data
+	 * @return {@link PseudoData} that acts like Data
 	 */
 	public PseudoData applyDataType(Address addr, DataType dt) {
 
@@ -351,10 +361,10 @@ public class PseudoDisassembler {
 	/**
 	 * Check that this entry point leads to valid code:
 	 * <ul>
-	 * <li> May have multiple entries into the body of the code.
-	 * <li>The intent is that it be valid code, not nice code.
-	 * <li>Hit no bad instructions.
-	 * <li>It should return.
+	 * <li> May have multiple entries into the body of the code.</li>
+	 * <li>The intent is that it be valid code, not nice code.</li>
+	 * <li>Hit no bad instructions.</li>
+	 * <li>It should return.</li>
 	 * </ul>
 	 * @param entryPoint
 	 * @return true if the entry point leads to valid code
@@ -367,10 +377,10 @@ public class PseudoDisassembler {
 	/**
 	 * Check that this entry point leads to valid code:
 	 * <ul>
-	 * <li> May have multiple entries into the body of the code.
-	 * <li>The intent is that it be valid code, not nice code.
-	 * <li>Hit no bad instructions.
-	 * <li>It should return.
+	 * <li> May have multiple entries into the body of the code.</li>
+	 * <li>The intent is that it be valid code, not nice code.</li>
+	 * <li>Hit no bad instructions.</li>
+	 * <li>It should return.</li>
 	 * </ul>
 	 * 
 	 * @param entryPoint location to test for valid code
@@ -414,9 +424,8 @@ public class PseudoDisassembler {
 		AddressSet body = new AddressSet();
 		AddressSet instrStarts = new AddressSet();
 
-		if (hasLowBitCodeModeInAddrValues(program)) {
-			entryPoint = setTargeContextForDisassembly(procContext, entryPoint);
-		}
+		entryPoint = setTargetContextForDisassembly(procContext, entryPoint);
+
 		Address target = entryPoint;
 
 		ArrayList<Address> targetList = new ArrayList<>(); // list of valid targets
@@ -565,25 +574,86 @@ public class PseudoDisassembler {
 	 * If a bad instruction is hit or it does not flow well, then return
 	 * false.
 	 * 
-	 * @param target - taraget address to disassemble
+	 * @param entryPoint address to check
 	 * 
-	 * @return true if this is a probable subroutine.
+	 * @return true if entryPoint is the probable subroutine start
 	 */
 	private boolean checkValidSubroutine(Address entryPoint, boolean allowExistingInstructions) {
 		return checkValidSubroutine(entryPoint, allowExistingInstructions, true);
 	}
 
+	/**
+	 * Check if there is a valid subroutine at the target address
+	 * 
+	 * @param entryPoint address to check
+	 * @param allowExistingInstructions true to allow running into existing instructions
+	 * @param mustTerminate true if the subroutine must hit a terminator (return) instruction
+	 * 
+	 * @return true if entryPoint is the probable subroutine start
+	 */
 	private boolean checkValidSubroutine(Address entryPoint, boolean allowExistingInstructions,
 			boolean mustTerminate) {
+
+		return checkValidSubroutine(entryPoint, allowExistingInstructions,
+			mustTerminate, false);
+	}
+
+	/**
+	 * Check if there is a valid subroutine at the target address
+	 * 
+	 * @param entryPoint address to check
+	 * @param allowExistingInstructions true to allow running into existing instructions
+	 * @param mustTerminate true if the subroutine must hit a terminator (return) instruction
+	 * @param requireContiguous true if the caller will require some number of contiguous instructions
+	 *        call getLastCheckValidInstructionCount() to get the initial number of contiguous instructions
+	 *        if this is true
+	 * 
+	 * @return true if entryPoint is the probable subroutine start
+	 */
+	public boolean checkValidSubroutine(Address entryPoint,
+			boolean allowExistingInstructions, boolean mustTerminate, boolean requireContiguous) {
+		
 		PseudoDisassemblerContext procContext = new PseudoDisassemblerContext(programContext);
 
 		return checkValidSubroutine(entryPoint, procContext, allowExistingInstructions,
-			mustTerminate);
+			mustTerminate, requireContiguous);
 	}
 
+	/**
+	 * Check if there is a valid subroutine at the target address
+	 * 
+	 * @param entryPoint address to check
+	 * @param procContext processor context to use when pseudo disassembling instructions
+	 * @param allowExistingInstructions true to allow running into existing instructions
+	 * @param mustTerminate true if the subroutine must hit a terminator (return) instruction
+	 * 
+	 * @return true if entryPoint is the probable subroutine start
+	 */
 	public boolean checkValidSubroutine(Address entryPoint, PseudoDisassemblerContext procContext,
 			boolean allowExistingInstructions, boolean mustTerminate) {
+		return checkValidSubroutine(entryPoint, procContext, allowExistingInstructions, mustTerminate, false);
+	}
 
+	/**
+	 * Check if there is a valid subroutine at the target address
+	 * 
+	 * @param entryPoint address to check
+	 * @param procContext processor context to use when pseudo disassembling instructions
+	 * @param allowExistingInstructions true to allow running into existing instructions
+	 * @param mustTerminate true if the subroutine must hit a terminator (return) instruction
+	 * @param requireContiguous true if the caller will require some number of contiguous instructions
+	 *        call getLastCheckValidInstructionCount() to get the initial number of contiguous instructions
+	 *        if this is true
+	 * 
+	 * @return true if entryPoint is the probable subroutine start
+	 */
+	public boolean checkValidSubroutine(Address entryPoint, PseudoDisassemblerContext procContext,
+			boolean allowExistingInstructions, boolean mustTerminate, boolean requireContiguous) {
+		
+		AddressSet contiguousSet = new AddressSet();
+
+		lastCheckValidDisassemblyCount = 0;
+	
 		if (!entryPoint.isMemoryAddress()) {
 			return false;
 		}
@@ -591,9 +661,8 @@ public class PseudoDisassembler {
 		AddressSet instrStarts = new AddressSet();
 		AddressSetView execSet = memory.getExecuteSet();
 
-		if (hasLowBitCodeModeInAddrValues(program)) {
-			entryPoint = setTargeContextForDisassembly(procContext, entryPoint);
-		}
+		entryPoint = setTargetContextForDisassembly(procContext, entryPoint);
+
 		Address target = entryPoint;
 
 		ArrayList<Address> targetList = new ArrayList<>(); // list of valid targets
@@ -632,6 +701,7 @@ public class PseudoDisassembler {
 					procContext.flowToAddress(target);
 				}
 				PseudoInstruction instr = disassemble(target, procContext, false);
+				
 				if (instr == null) {
 					// if the target is in the external section, which is uninitialized, ignore it!
 					//    it is probably a JUMP to an external function.
@@ -645,7 +715,13 @@ public class PseudoDisassembler {
 					repeatInstructionByteTracker.reset();
 					continue;
 				}
-
+				
+				// count valid instructions encountered, if checking contiguous only count if instructions merge into the first range
+				if (contiguousSet.isEmpty() || !requireContiguous || contiguousSet.getFirstRange().getMaxAddress().isSuccessor(target)) {
+					contiguousSet.add(instr.getMinAddress(),instr.getMaxAddress());
+					lastCheckValidDisassemblyCount++;
+				}
+				
 				// check if we are getting into bad instruction runs
 				if (repeatInstructionByteTracker.exceedsRepeatBytePattern(instr)) {
 					return false;
@@ -789,16 +865,17 @@ public class PseudoDisassembler {
 				target = newTarget;
 			}
 		}
-		catch (
-
-		InsufficientBytesException e) {
+		catch (InsufficientBytesException e) {
+			// can't parse not enough bytes
 			return false;
 		}
 		catch (UnknownInstructionException e) {
+			// bad instruction
 			return false;
 		}
 		catch (UnknownContextException e) {
-
+			// something wrong with context
+			return false;
 		}
 
 		// get rid of anything on target list that is in body of instruction
@@ -807,12 +884,17 @@ public class PseudoDisassembler {
 			Address targetAddr = iter.next();
 			if (body.contains(targetAddr)) {
 				iter.remove();
-			}
-			// if this target does not refer to an instruction start.
-			if (!instrStarts.contains(targetAddr)) {
-				return false;
+				// if this target does not refer to an instruction start.
+				if (!instrStarts.contains(targetAddr)) {
+					return false;
+				}
+			} else if (maxInstructions > 0) {
+				// if there was a maximum, then don't worry about targets that
+				// were never followed
+				iter.remove();
 			}
 		}
+
 
 		// if target list is empty, and we are at a terminal instruction
 		if (targetList.isEmpty() && (didTerminate || !mustTerminate || didCallValidSubroutine)) {
@@ -994,25 +1076,29 @@ public class PseudoDisassembler {
 	 * @param addr the raw address
 	 * @return the correct address to disassemble at if it needs to be aligned
 	 */
-	public static Address setTargeContextForDisassembly(Program program, Address addr) {
+	public static Address setTargetContextForDisassembly(Program program, Address addr) {
 		if (!addr.isMemoryAddress()) {
 			Msg.error(PseudoDisassembler.class,
 				"Invalid attempt to adjust disassembler context at " + addr.toString(true));
 			return addr;
 		}
+
+		long offset = addr.getOffset();
+		if ((offset & 1) == 0) {
+			return addr;
+		}
+
 		Register lowBitCodeMode = program.getRegister(LOW_BIT_CODE_MODE_REGISTER_NAME);
 		if (lowBitCodeMode == null) {
 			return addr;
 		}
-		long offset = addr.getOffset();
-		if ((offset & 1) == 1) {
-			addr = addr.getNewAddress(addr.getOffset() & ~0x1);
-			try {
-				program.getProgramContext().setValue(lowBitCodeMode, addr, addr, BigInteger.ONE);
-			}
-			catch (ContextChangeException e) {
-				// shouldn't happen
-			}
+
+		addr = addr.getNewAddress(addr.getOffset() & ~0x1);
+		try {
+			program.getProgramContext().setValue(lowBitCodeMode, addr, addr, BigInteger.ONE);
+		}
+		catch (ContextChangeException e) {
+			// shouldn't happen
 		}
 		return addr;
 	}
@@ -1027,23 +1113,29 @@ public class PseudoDisassembler {
 	 * @return the correct disassembly location if the address needed to be adjusted.
 	 */
 
-	public Address setTargeContextForDisassembly(PseudoDisassemblerContext procContext,
+	public static Address setTargetContextForDisassembly(DisassemblerContext procContext,
 			Address addr) {
 		if (!addr.isMemoryAddress()) {
-			Msg.error(this,
+			Msg.error(PseudoDisassembler.class,
 				"Invalid attempt to adjust disassembler context at " + addr.toString(true));
 			return addr;
 		}
-		Register lowBitCodeMode = program.getRegister(LOW_BIT_CODE_MODE_REGISTER_NAME);
+
+		long offset = addr.getOffset();
+		if ((offset & 1) == 0) {
+			return addr;
+		}
+
+		Register lowBitCodeMode = procContext.getRegister(LOW_BIT_CODE_MODE_REGISTER_NAME);
 		if (lowBitCodeMode == null) {
 			return addr;
 		}
-		long offset = addr.getOffset();
-		if ((offset & 1) == 1) {
-			addr = addr.getNewAddress(addr.getOffset() & ~0x1);
-			procContext.setValue(lowBitCodeMode, addr, BigInteger.ONE);
-		}
-		return addr.getNewAddress(addr.getOffset() & ~0x1);
+
+		// Set context and revise addr (clear lsb of offset)
+		addr = addr.getNewAddress(addr.getOffset() & ~0x1);
+		RegisterValue val = new RegisterValue(lowBitCodeMode, BigInteger.ONE);
+		procContext.setFutureRegisterValue(addr, val);
+		return addr;
 	}
 
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package ghidra.file.formats.ios.img2;
 
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.List;
 
 import ghidra.app.util.bin.ByteProvider;
@@ -33,7 +34,7 @@ import ghidra.util.task.TaskMonitor;
 //@formatter:on
 public class Img2FileSystem implements GFileSystem {
 
-	private FSRLRoot fsFSRL;
+	private final FSRLRoot fsFSRL;
 	private SingleFileSystemIndexHelper fsIndexHelper;
 	private FileSystemRefManager refManager = new FileSystemRefManager(this);
 	private ByteProvider provider;
@@ -102,8 +103,13 @@ public class Img2FileSystem implements GFileSystem {
 	}
 
 	@Override
-	public GFile lookup(String path) throws IOException {
+	public GFile lookup(String path) {
 		return fsIndexHelper.lookup(path);
+	}
+
+	@Override
+	public GFile lookup(String path, Comparator<String> nameComp) throws IOException {
+		return fsIndexHelper.lookup(null, path, nameComp);
 	}
 
 }

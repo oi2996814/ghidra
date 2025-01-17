@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,10 +15,15 @@
  */
 package ghidra.program.model.lang;
 
+import java.io.IOException;
+
 import ghidra.app.plugin.processors.sleigh.PcodeEmit;
 import ghidra.app.plugin.processors.sleigh.SleighLanguage;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.mem.MemoryAccessException;
+import ghidra.program.model.pcode.Encoder;
 import ghidra.program.model.pcode.PcodeOp;
+import ghidra.util.exception.NotFoundException;
 import ghidra.xml.XmlParseException;
 import ghidra.xml.XmlPullParser;
 
@@ -62,24 +67,19 @@ public interface InjectPayload {
 			index = i;
 		}
 
-		@Override
-		public boolean equals(Object obj) {
-			InjectParameter op2 = (InjectParameter) obj;
-			if (index != op2.index || size != op2.size) {
+		/**
+		 * Determine if this InjectParameter and another instance are equivalent
+		 * @param obj is the other instance
+		 * @return true if they are equivalent
+		 */
+		public boolean isEquivalent(InjectParameter obj) {
+			if (!name.equals(obj.name)) {
 				return false;
 			}
-			if (!name.equals(op2.name)) {
+			if (index != obj.index || size != obj.size) {
 				return false;
 			}
 			return true;
-		}
-
-		@Override
-		public int hashCode() {
-			int hash = name.hashCode();
-			hash = 79 * hash + index;
-			hash = 79 * hash + size;
-			return hash;
 		}
 	}
 
@@ -124,8 +124,13 @@ public interface InjectPayload {
 	 * Given a context, send the p-code payload to the emitter
 	 * @param context is the context for injection
 	 * @param emit is the object accumulating the final p-code
+	 * @throws MemoryAccessException for problems establishing the injection context
+	 * @throws IOException for problems while emitting the injection p-code
+	 * @throws UnknownInstructionException if there is no underlying instruction being injected
+	 * @throws NotFoundException if an expected aspect of the injection is not present in context
 	 */
-	public void inject(InjectContext context, PcodeEmit emit);
+	public void inject(InjectContext context, PcodeEmit emit) throws MemoryAccessException,
+			IOException, UnknownInstructionException, NotFoundException;
 
 	/**
 	 * A convenience function wrapping the inject method, to produce the final set
@@ -133,8 +138,13 @@ public interface InjectPayload {
 	 * @param program is the Program for which injection is happening
 	 * @param con is the context for injection
 	 * @return the array of PcodeOps
+	 * @throws MemoryAccessException for problems establishing the injection context
+	 * @throws IOException for problems while emitting the injection p-code
+	 * @throws UnknownInstructionException if there is no underlying instruction being injected
+	 * @throws NotFoundException if an expected aspect of the injection is not present in context
 	 */
-	public PcodeOp[] getPcode(Program program, InjectContext con);
+	public PcodeOp[] getPcode(Program program, InjectContext con) throws MemoryAccessException,
+			IOException, UnknownInstructionException, NotFoundException;
 
 	/**
 	 * @return true if the injected p-code falls thru
@@ -147,17 +157,26 @@ public interface InjectPayload {
 	public boolean isIncidentalCopy();
 
 	/**
-	 * Write out configuration parameters as a \<pcode> XML tag
-	 * @param buffer is the stream to write to
+	 * Encode configuration parameters as a {@code <pcode>} element to stream
+	 * @param encoder is the stream encoder
+	 * @throws IOException for errors writing to the underlying stream
 	 */
-	public void saveXml(StringBuilder buffer);
+	public void encode(Encoder encoder) throws IOException;
 
 	/**
 	 * Restore the payload from an XML stream.  The root expected document is
-	 * the \<pcode> tag, which may be wrapped with another tag by the derived class.
+	 * the {@code <pcode>} tag, which may be wrapped with another tag by the derived class.
 	 * @param parser is the XML stream
 	 * @param language is used to resolve registers and address spaces
 	 * @throws XmlParseException for badly formed XML
 	 */
 	public void restoreXml(XmlPullParser parser, SleighLanguage language) throws XmlParseException;
+
+	/**
+	 * Determine if this InjectPayload and another instance are equivalent
+	 * (have the same name and generate the same p-code)
+	 * @param obj is the other payload
+	 * @return true if they are equivalent
+	 */
+	public boolean isEquivalent(InjectPayload obj);
 }

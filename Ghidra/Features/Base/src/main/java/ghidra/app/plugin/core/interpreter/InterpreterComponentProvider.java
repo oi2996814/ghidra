@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,17 +26,14 @@ import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.ToolBarData;
 import docking.widgets.OptionDialog;
+import generic.theme.GIcon;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
 import ghidra.util.HelpLocation;
 import resources.Icons;
-import resources.ResourceManager;
 import utility.function.Callback;
 
 public class InterpreterComponentProvider extends ComponentProviderAdapter
 		implements InterpreterConsole {
-
-	private static final String CONSOLE_GIF = "images/monitor.png";
-	private static final String CLEAR_GIF = "images/erase16.png";
 
 	private InterpreterPanel panel;
 	private InterpreterConnection interpreter;
@@ -44,7 +41,7 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 
 	public InterpreterComponentProvider(InterpreterPanelPlugin plugin,
 			InterpreterConnection interpreter, boolean visible) {
-		super(plugin.getTool(), interpreter.getTitle(), plugin.getName());
+		super(plugin.getTool(), interpreter.getTitle(), interpreter.getTitle());
 
 		this.panel = new InterpreterPanel(plugin.getTool(), interpreter);
 		this.interpreter = interpreter;
@@ -57,7 +54,7 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 
 		Icon icon = interpreter.getIcon();
 		if (icon == null) {
-			icon = ResourceManager.loadImage(CONSOLE_GIF);
+			icon = new GIcon("icon.plugin.interpreter.provider");
 		}
 		setIcon(icon);
 
@@ -66,14 +63,14 @@ public class InterpreterComponentProvider extends ComponentProviderAdapter
 
 	private void createActions() {
 
-		DockingAction clearAction = new DockingAction("Clear Interpreter", getName()) {
+		DockingAction clearAction = new DockingAction("Clear Interpreter", getOwner()) {
 			@Override
 			public void actionPerformed(ActionContext context) {
 				clear();
 			}
 		};
 		clearAction.setDescription("Clear Interpreter");
-		clearAction.setToolBarData(new ToolBarData(ResourceManager.loadImage(CLEAR_GIF), null));
+		clearAction.setToolBarData(new ToolBarData(Icons.CLEAR_ICON, null));
 		clearAction.setEnabled(true);
 
 		addLocalAction(clearAction);

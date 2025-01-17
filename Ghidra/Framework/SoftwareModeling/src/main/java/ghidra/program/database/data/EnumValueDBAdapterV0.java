@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -36,10 +36,10 @@ class EnumValueDBAdapterV0 extends EnumValueDBAdapter {
 	/**
 	 * Gets a version 0 adapter for the Enumeration Data Type Values database table.
 	 * @param handle handle to the database containing the table.
-	 * @throws VersionException if the the table's version does not match the expected version
+	 * @throws VersionException if the table's version does not match the expected version
 	 * for this adapter.
 	 */
-	public EnumValueDBAdapterV0(DBHandle handle) throws VersionException {
+	EnumValueDBAdapterV0(DBHandle handle) throws VersionException {
 
 		table = handle.getTable(ENUM_VALUE_TABLE_NAME);
 		if (table == null) {
@@ -55,29 +55,33 @@ class EnumValueDBAdapterV0 extends EnumValueDBAdapter {
 	}
 
 	@Override
-	public void createRecord(long enumID, String name, long value, String comment)
+	void createRecord(long enumID, String name, long value, String comment)
 			throws IOException {
 		throw new UnsupportedOperationException("Cannot update Version 0");
 	}
 
 	@Override
-	public DBRecord getRecord(long valueID) throws IOException {
+	DBRecord getRecord(long valueID) throws IOException {
 		return translateRecord(table.getRecord(valueID));
 	}
 
 	@Override
-	public void removeRecord(long valueID) throws IOException {
+	void removeRecord(long valueID) throws IOException {
 		throw new UnsupportedOperationException("Cannot remove Version 0");
 	}
 
 	@Override
-	public void updateRecord(DBRecord record) throws IOException {
+	void updateRecord(DBRecord record) throws IOException {
 		throw new UnsupportedOperationException("Cannot update Version 0");
 	}
 
 	@Override
-	public Field[] getValueIdsInEnum(long enumID) throws IOException {
+	Field[] getValueIdsInEnum(long enumID) throws IOException {
 		return table.findRecords(new LongField(enumID), ENUMVAL_ID_COL);
+	}
+
+	void deleteTable(DBHandle handle) throws IOException {
+		handle.deleteTable(ENUM_VALUE_TABLE_NAME);
 	}
 
 	@Override

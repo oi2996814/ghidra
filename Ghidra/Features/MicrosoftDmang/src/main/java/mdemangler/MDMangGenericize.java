@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,12 +29,21 @@ public class MDMangGenericize extends MDMang {
 	/*
 	 * Used for creating a copy-with-substitutes of the original string
 	 */
-	private StringBuilder genericizedString = new StringBuilder();
-	// uniqueCount must start at -1 as nextUnique() pre-creates a potential
-	// fragment for use.
-	private int uniqueCount = -1;
-	private String nextUnique = nextUnique();
-	private Map<String, String> uniqueFragments = new HashMap<>();
+	private StringBuilder genericizedString;
+	private int uniqueCount;
+	private String nextUnique;
+	private Map<String, String> uniqueFragments;
+
+	@Override
+	public void resetState() {
+		super.resetState();
+		genericizedString = new StringBuilder();
+		// uniqueCount must start at -1 as nextUnique() pre-creates a potential
+		// fragment for use.
+		uniqueCount = -1;
+		nextUnique = nextUnique();
+		uniqueFragments = new HashMap<>();
+	}
 
 	// @Override
 	// public MDParsableItem demangle_orig(Boolean errorOnRemainingChars) {
@@ -58,19 +67,11 @@ public class MDMangGenericize extends MDMang {
 	// return item;
 	// }
 	@Override
-	public MDParsableItem demangle(boolean errorOnRemainingChars) throws MDException {
-		// ignoring the parameter (for now)
-		if (mangled == null) {
-			throw new MDException("MDMang: Mangled string is null.");
-		}
-		pushContext();
-		item = MDMangObjectParser.parse(this);
-		if (item != null) {
-			item.parse();
-		}
-		int numCharsRemaining = getNumCharsRemaining();
+	public MDParsableItem demangle() throws MDException {
+		// ignoring the 'errorOnRemainingChars' parameter (for now)
+		initState();
+		item = MDMangObjectParser.determineItemAndParse(this);
 		appendRemainder();
-		popContext();
 		// if (errorOnRemainingChars && (numCharsRemaining > 0)) {
 		// throw new MDException(
 		// "MDMang: characters remain after demangling: " + numCharsRemaining +
@@ -108,7 +109,7 @@ public class MDMangGenericize extends MDMang {
 	 * genericizedString. Suggested use is to use peek() and next() when not
 	 * wanting to add the character, but to use getAndIncrement() when wanting
 	 * to add the character.
-	 * 
+	 *
 	 * @return the character at the new position or DONE
 	 */
 	@Override
@@ -121,7 +122,7 @@ public class MDMangGenericize extends MDMang {
 	 * by one. If the resulting index is greater or equal to the end index, the
 	 * current index is reset to the end index and a value of DONE is returned.
 	 * Also adds the character to the genericizedString.
-	 * 
+	 *
 	 * @return the character at the new position or DONE
 	 */
 	@Override
@@ -145,7 +146,7 @@ public class MDMangGenericize extends MDMang {
 	 * Increments the index by count.  Does no testing for whether the index
 	 * surpasses the length of the string.  Also does internal processing
 	 * for creating a genericized String.
-	 * 
+	 *
 	 * @param count
 	 *            number of characters to move ahead
 	 */

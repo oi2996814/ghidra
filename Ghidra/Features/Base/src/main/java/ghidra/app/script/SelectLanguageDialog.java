@@ -19,12 +19,11 @@ import docking.DialogComponentProvider;
 import docking.DockingWindowManager;
 import ghidra.plugin.importer.NewLanguagePanel;
 import ghidra.program.model.lang.LanguageCompilerSpecPair;
-import ghidra.util.SystemUtilities;
+import ghidra.util.Swing;
 
 public class SelectLanguageDialog extends DialogComponentProvider {
 
 	private NewLanguagePanel languagePanel;
-	private boolean actionComplete = false;
 	private LanguageCompilerSpecPair selectedLcsPair;
 	private boolean wasCancelled = false;
 
@@ -47,7 +46,6 @@ public class SelectLanguageDialog extends DialogComponentProvider {
 	@Override
 	protected void okCallback() {
 		if (checkInput()) {
-			actionComplete = true;
 			selectedLcsPair = languagePanel.getSelectedLcsPair();
 			close();
 		}
@@ -65,7 +63,7 @@ public class SelectLanguageDialog extends DialogComponentProvider {
 		wasCancelled = true;
 	}
 
-	boolean wasCancelled() {
+	public boolean wasCancelled() {
 		return wasCancelled;
 	}
 
@@ -73,19 +71,15 @@ public class SelectLanguageDialog extends DialogComponentProvider {
 		return languagePanel.getSelectedLcsPair() != null;
 	}
 
-	void setSelectedLanguage(LanguageCompilerSpecPair language) {
-		SystemUtilities.runSwingNow(() -> languagePanel.setSelectedLcsPair(language));
+	public void setSelectedLanguage(LanguageCompilerSpecPair language) {
+		Swing.runNow(() -> languagePanel.setSelectedLcsPair(language));
 	}
 
 	public LanguageCompilerSpecPair getSelectedLanguage() {
-
-		SystemUtilities.runSwingNow(() -> showDialog());
 		return selectedLcsPair;
 	}
 
-	private void showDialog() {
-		selectedLcsPair = null;
-		actionComplete = false;
+	public void show() {
 		DockingWindowManager.showDialog(null, this);
 	}
 }

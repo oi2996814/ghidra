@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,7 +24,7 @@ import javax.swing.Timer;
 
 import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
-import ghidra.framework.main.FrontEndOnly;
+import ghidra.framework.main.ApplicationLevelOnlyPlugin;
 import ghidra.framework.main.FrontEndTool;
 import ghidra.framework.model.*;
 import ghidra.framework.options.OptionsChangeListener;
@@ -39,7 +39,7 @@ import ghidra.util.exception.AssertException;
 @PluginInfo(
 	status = PluginStatus.RELEASED,
 	packageName = CorePluginPackage.NAME,
-	category = PluginCategoryNames.MISC,
+	category = PluginCategoryNames.COMMON,
 	shortDescription = "Generates recovery snapshot files",
 	description = "Facilitates the periodic creation of recovery snapshot files.  " +
 			"In the event of a crash or application hang, these files may be used to " +
@@ -49,7 +49,7 @@ import ghidra.util.exception.AssertException;
 )
 //@formatter:on
 public class RecoverySnapshotMgrPlugin extends Plugin
-		implements FrontEndOnly, OptionsChangeListener, ProjectListener {
+		implements ApplicationLevelOnlyPlugin, OptionsChangeListener, ProjectListener {
 
 	private final static String OPTIONS_TITLE = "Recovery";
 	private final static String SNAPSHOT_PERIOD_OPTION = "Snapshot period (minutes, 0=disabled)";
@@ -180,6 +180,7 @@ public class RecoverySnapshotMgrPlugin extends Plugin
 	public void dispose() {
 		ToolOptions opt = tool.getOptions(OPTIONS_TITLE);
 		opt.removeOptionsChangeListener(this);
+		stopSnapshotTimer();
 		super.dispose();
 	}
 

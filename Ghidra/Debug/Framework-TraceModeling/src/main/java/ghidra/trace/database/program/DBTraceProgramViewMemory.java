@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,36 +19,45 @@ import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import com.google.common.cache.CacheBuilder;
-
 import ghidra.program.model.address.*;
 import ghidra.program.model.mem.MemoryBlock;
-import ghidra.trace.database.memory.DBTraceMemoryRegion;
+import ghidra.trace.model.memory.TraceMemoryRegion;
+import ghidra.util.LockHold;
+import ghidra.util.datastruct.WeakValueHashMap;
 
 public class DBTraceProgramViewMemory extends AbstractDBTraceProgramViewMemory {
+	// I think size should be about how many instructions may appear on screen at once.
+	// Double for good measure (in case windows are cloned, maximized, etc.)
+	private static final int REGION_CACHE_BY_ADDRESS_SIZE = 300;
+
+	// Size should be about how many distinct regions are involved in displayed instructions
+	// Probably only about 5, but cost of 30 is still small.
+	private static final int REGION_CACHE_BY_NAME_SIZE = 30;
 
 	// NB. Keep both per-region and force-full (per-space) block sets ready
-	private final Map<DBTraceMemoryRegion, DBTraceProgramViewMemoryRegionBlock> regionBlocks =
-		CacheBuilder.newBuilder()
-				.removalListener(this::regionBlockRemoved)
-				.weakValues()
-				.build()
-				.asMap();
+	private final Map<TraceMemoryRegion, DBTraceProgramViewMemoryRegionBlock> regionBlocks =
+		new WeakValueHashMap<>();
 	private final Map<AddressSpace, DBTraceProgramViewMemorySpaceBlock> spaceBlocks =
-		CacheBuilder.newBuilder()
-				.removalListener(this::spaceBlockRemoved)
-				.weakValues()
-				.build()
-				.asMap();
+		new WeakValueHashMap<>();
+	private final Map<Address, TraceMemoryRegion> regionCacheByAddress = new LinkedHashMap<>() {
+		protected boolean removeEldestEntry(Map.Entry<Address, TraceMemoryRegion> eldest) {
+			return this.size() > REGION_CACHE_BY_ADDRESS_SIZE;
+		}
+	};
+	private final Map<String, TraceMemoryRegion> regionCacheByName = new LinkedHashMap<>() {
+		protected boolean removeEldestEntry(Map.Entry<String, TraceMemoryRegion> eldest) {
+			return this.size() > REGION_CACHE_BY_NAME_SIZE;
+		}
+	};
 
 	public DBTraceProgramViewMemory(DBTraceProgramView program) {
 		super(program);
 	}
 
-	protected DBTraceMemoryRegion getTopRegion(Function<Long, DBTraceMemoryRegion> regFunc) {
+	protected TraceMemoryRegion getTopRegion(Function<Long, TraceMemoryRegion> regFunc) {
 		return program.viewport.getTop(s -> {
 			// TODO: There is probably an early-bail condition I can check for.
-			DBTraceMemoryRegion reg = regFunc.apply(s);
+			TraceMemoryRegion reg = regFunc.apply(s);
 			if (reg != null && program.isRegionVisible(reg)) {
 				return reg;
 			}
@@ -56,10 +65,10 @@ public class DBTraceProgramViewMemory extends AbstractDBTraceProgramViewMemory {
 		});
 	}
 
-	protected void forVisibleRegions(Consumer<? super DBTraceMemoryRegion> action) {
+	protected void forVisibleRegions(Consumer<? super TraceMemoryRegion> action) {
 		for (long s : program.viewport.getOrderedSnaps()) {
 			// NOTE: This is slightly faster than new AddressSet(mm.getRegionsAddressSet(snap))
-			for (DBTraceMemoryRegion reg : memoryManager.getRegionsAtSnap(s)) {
+			for (TraceMemoryRegion reg : memoryManager.getRegionsAtSnap(s)) {
 				if (program.isRegionVisible(reg)) {
 					action.accept(reg);
 				}
@@ -68,14 +77,22 @@ public class DBTraceProgramViewMemory extends AbstractDBTraceProgramViewMemory {
 	}
 
 	@Override
+	void setSnap(long snap) {
+		super.setSnap(snap);
+		updateBytesChanged(null);
+	}
+
+	@Override
 	protected void recomputeAddressSet() {
 		AddressSet temp = new AddressSet();
-		// TODO: Performance test this
-		forVisibleRegions(reg -> temp.add(reg.getRange()));
+		try (LockHold hold = program.trace.lockRead()) {
+			// TODO: Performance test this
+			forVisibleRegions(reg -> temp.add(reg.getRange()));
+		}
 		addressSet = temp;
 	}
 
-	protected MemoryBlock getRegionBlock(DBTraceMemoryRegion region) {
+	protected MemoryBlock getRegionBlock(TraceMemoryRegion region) {
 		return regionBlocks.computeIfAbsent(region,
 			r -> new DBTraceProgramViewMemoryRegionBlock(program, region));
 	}
@@ -90,8 +107,24 @@ public class DBTraceProgramViewMemory extends AbstractDBTraceProgramViewMemory {
 		if (forceFullView) {
 			return getSpaceBlock(addr.getAddressSpace());
 		}
-		DBTraceMemoryRegion region = getTopRegion(s -> memoryManager.getRegionContaining(s, addr));
-		return region == null ? null : getRegionBlock(region);
+		TraceMemoryRegion region = regionCacheByAddress.get(addr);
+		if (region != null && !region.isDeleted()) {
+			/**
+			 * TODO: This is assuming: 1) We never fork in non-scratch space. 2) Regions are not
+			 * created in scratch space. These are convention, but weren't originally intended to be
+			 * rules. This makes them rules.
+			 */
+			long s = program.viewport.getReversedSnaps().get(0);
+			if (region.getLifespan().contains(s)) {
+				return getRegionBlock(region);
+			}
+		}
+		region = getTopRegion(s -> memoryManager.getRegionContaining(s, addr));
+		if (region != null) {
+			regionCacheByAddress.put(addr, region);
+			return getRegionBlock(region);
+		}
+		return null;
 	}
 
 	@Override
@@ -100,9 +133,19 @@ public class DBTraceProgramViewMemory extends AbstractDBTraceProgramViewMemory {
 			AddressSpace space = program.getAddressFactory().getAddressSpace(blockName);
 			return space == null ? null : getSpaceBlock(space);
 		}
-		DBTraceMemoryRegion region =
-			getTopRegion(s -> memoryManager.getLiveRegionByPath(s, blockName));
-		return region == null ? null : getRegionBlock(region);
+		TraceMemoryRegion region = regionCacheByName.get(blockName);
+		if (region != null && !region.isDeleted()) {
+			long s = program.viewport.getReversedSnaps().get(0);
+			if (region.getLifespan().contains(s)) {
+				return getRegionBlock(region);
+			}
+		}
+		region = getTopRegion(s -> memoryManager.getLiveRegionByPath(s, blockName));
+		if (region != null) {
+			regionCacheByName.put(blockName, region);
+			return getRegionBlock(region);
+		}
+		return null;
 	}
 
 	@Override
@@ -118,26 +161,25 @@ public class DBTraceProgramViewMemory extends AbstractDBTraceProgramViewMemory {
 		return result.toArray(new MemoryBlock[result.size()]);
 	}
 
-	public void updateAddRegionBlock(DBTraceMemoryRegion region) {
+	public void updateAddRegionBlock(TraceMemoryRegion region) {
 		// TODO: add block to cache?
 		addRange(region.getRange());
 	}
 
-	public void updateChangeRegionBlockName(DBTraceMemoryRegion region) {
+	public void updateChangeRegionBlockName(TraceMemoryRegion region) {
 		// Nothing. Block name is taken from region, uncached
 	}
 
-	public void updateChangeRegionBlockFlags(DBTraceMemoryRegion region) {
+	public void updateChangeRegionBlockFlags(TraceMemoryRegion region) {
 		// Nothing. Block flags are taken from region, uncached
 	}
 
-	public void updateChangeRegionBlockRange(DBTraceMemoryRegion region, AddressRange oldRange,
+	public void updateChangeRegionBlockRange(TraceMemoryRegion region, AddressRange oldRange,
 			AddressRange newRange) {
-		// TODO: update cached block? Nothing to update.
 		changeRange(oldRange, newRange);
 	}
 
-	public void updateDeleteRegionBlock(DBTraceMemoryRegion region) {
+	public void updateDeleteRegionBlock(TraceMemoryRegion region) {
 		regionBlocks.remove(region);
 		removeRange(region.getRange());
 	}
@@ -154,5 +196,12 @@ public class DBTraceProgramViewMemory extends AbstractDBTraceProgramViewMemory {
 		regionBlocks.clear();
 		spaceBlocks.clear();
 		recomputeAddressSet();
+	}
+
+	public void updateBytesChanged(AddressRange range) {
+		if (regionBlocks == null) { // <init> order
+			return;
+		}
+		cache.invalidate(range);
 	}
 }

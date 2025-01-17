@@ -31,11 +31,13 @@ import ghidra.app.services.*;
 import ghidra.app.util.PseudoDisassembler;
 import ghidra.app.util.importer.MessageLog;
 import ghidra.app.util.opinion.PeLoader;
-import ghidra.framework.cmd.*;
+import ghidra.framework.cmd.BackgroundCommand;
+import ghidra.framework.cmd.CompoundBackgroundCommand;
 import ghidra.framework.options.Options;
 import ghidra.program.disassemble.Disassembler;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
+import ghidra.program.model.lang.Processor;
 import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.*;
@@ -125,8 +127,7 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 
 	private boolean newCodeFound = false;
 	private int processorAlignment = 1;
-	private MemoryBlock externalBlock;
-	private boolean respectExecuteFlags = true;
+	private boolean respectExecuteFlags = OPTION_DEFAULT_RESPECT_EXECUTE_ENABLED;
 
 	public OperandReferenceAnalyzer() {
 		this(NAME, DESCRIPTION, AnalyzerType.INSTRUCTION_ANALYZER);
@@ -142,6 +143,16 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 		// segmented addresses can't tell the segment for an address from just the two byte offset
 		AddressSpace defaultAddressSpace = program.getAddressFactory().getDefaultAddressSpace();
 		if (defaultAddressSpace instanceof SegmentedAddressSpace) {
+			pointerEnabled = false;
+			addressTablesEnabled = false;
+		}
+
+		boolean isArm = program.getLanguage()
+				.getProcessor()
+				.equals(Processor.findOrPossiblyCreateProcessor("ARM"));
+
+		// if arm, turn off reference to pointer analysis
+		if (isArm) {
 			pointerEnabled = false;
 			addressTablesEnabled = false;
 		}
@@ -192,8 +203,6 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 
 		processorAlignment = program.getLanguage().getInstructionAlignment();
 
-		externalBlock = program.getMemory().getBlock(MemoryBlock.EXTERNAL_BLOCK_NAME);
-
 		newCodeFound = false;
 		int count = NOTIFICATION_INTERVAL;
 		long initial_count = set.getNumAddresses();
@@ -226,7 +235,7 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 		AddressSet checkedTargets = new AddressSet();
 
 		while (iter.hasNext() && !newCodeFound) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			Address addr = iter.next();
 
@@ -491,7 +500,8 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			// TODO: delayed disassembly should check if the code starts are still valid
 			AddressSet doDisTargets = disTargets.subtract(doneDisSet);
 			if (!doDisTargets.isEmpty()) {
-				BackgroundCommand cmd = createDisassemblyCommandsForAddress(program, doDisTargets);
+				BackgroundCommand<Program> cmd =
+					createDisassemblyCommandsForAddress(program, doDisTargets);
 				mgr.schedule(cmd, AnalysisPriority.REFERENCE_ANALYSIS.after().after().priority());
 			}
 
@@ -501,8 +511,8 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			while (foundIter.hasNext()) {
 				Address target = foundIter.next();
 				program.getBookmarkManager()
-						.setBookmark(target, BookmarkType.ANALYSIS,
-							"Found Code", "Found code from operand reference");
+						.setBookmark(target, BookmarkType.ANALYSIS, "Found Code",
+							"Found code from operand reference");
 			}
 		}
 
@@ -515,10 +525,10 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 		return true;
 	}
 
-	private CompoundBackgroundCommand createDisassemblyCommandsForAddress(Program program,
+	private CompoundBackgroundCommand<Program> createDisassemblyCommandsForAddress(Program program,
 			AddressSet locations) {
-		CompoundBackgroundCommand backCmd =
-			new CompoundBackgroundCommand("Subroutine References", false, true);
+		CompoundBackgroundCommand<Program> backCmd =
+			new CompoundBackgroundCommand<>("Subroutine References", false, true);
 
 		Listing listing = program.getListing();
 		int align = program.getLanguage().getInstructionAlignment();
@@ -574,12 +584,8 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			throws CancelledException {
 		// Check any direct jumps into the EXTERNAL memory section
 		//   These don't return!
-		if (externalBlock == null) {
-			return false;
-		}
-
 		Address toAddr = reference.getToAddress();
-		if (!externalBlock.contains(toAddr)) {
+		if (!program.getMemory().isExternalBlockAddress(toAddr)) {
 			return false;
 		}
 		Address fromAddr = reference.getFromAddress();
@@ -591,8 +597,8 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			// Get rid of any bad disassembly bookmark
 			AddressSet set = new AddressSet(toAddr);
 			program.getBookmarkManager()
-					.removeBookmarks(set, BookmarkType.ERROR,
-						Disassembler.ERROR_BOOKMARK_CATEGORY, monitor);
+					.removeBookmarks(set, BookmarkType.ERROR, Disassembler.ERROR_BOOKMARK_CATEGORY,
+						monitor);
 		}
 
 		// make sure function created at destination
@@ -653,8 +659,8 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			//     then the target becomes the output varnode
 			Varnode[] inputs = element.getInputs();
 			for (Varnode input : inputs) {
-				if ((target != null && target.equals(input)) || (input.isConstant() &&
-					input.getOffset() == targetValue.getUnsignedOffset())) {
+				if ((target != null && target.equals(input)) ||
+					(input.isConstant() && input.getOffset() == targetValue.getUnsignedOffset())) {
 					if (op == PcodeOp.LOAD || op == PcodeOp.STORE) {
 						continue;
 					}
@@ -778,9 +784,8 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 		if (lastGoodTable != null) {
 			instr.removeOperandReference(opIndex, target);
 			program.getReferenceManager()
-					.addOffsetMemReference(instr.getMinAddress(),
-						lastGoodTable.getTopAddress(), -((i + 3) * entryLen), RefType.DATA,
-						SourceType.ANALYSIS, opIndex);
+					.addOffsetMemReference(instr.getMinAddress(), lastGoodTable.getTopAddress(),
+						false, -((i + 3) * entryLen), RefType.DATA, SourceType.ANALYSIS, opIndex);
 		}
 
 		return lastGoodTable;
@@ -838,7 +843,7 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			// check if it could be code
 			if (!isValidInstruction(pdis, target)) {
 				if (clearAllUndefined(program, target, asciiLen)) {
-					Command cmd = new CreateStringCmd(target, asciiLen, false);
+					CreateStringCmd cmd = new CreateStringCmd(target, asciiLen, false);
 					cmd.applyTo(program);
 				}
 			}
@@ -865,7 +870,7 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			// check if it could be code
 			if (!isValidInstruction(pdis, target)) {
 				if (clearAllUndefined(program, target, uniLen)) {
-					Command cmd = new CreateStringCmd(target, 2 * (uniLen + 1), true);
+					CreateStringCmd cmd = new CreateStringCmd(target, 2 * (uniLen + 1), true);
 					cmd.applyTo(program);
 				}
 			}
@@ -875,13 +880,15 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 	}
 
 	/**
-	* Check if the set of bytes that should be used is all undefined, or all undefined data types.
-	*   It means that whatever laid things down here only knew that something was accessed of some size.
-	*
-	* @param lenBytes
-	*
-	* @return false if data couldn't be cleared away
-	*/
+	 * Check if the set of bytes that should be used is all undefined, or all undefined data types.
+	 * It means that whatever laid things down here only knew that something was accessed of 
+	 * some size.
+	 *
+	 * @param program
+	 * @param start
+	 * @param lenBytes
+	 * @return false if data couldn't be cleared away
+	 */
 	private boolean clearAllUndefined(Program program, Address start, int lenBytes) {
 		if (lenBytes < 1) {
 			return false;
@@ -1017,7 +1024,7 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 			if (doit && clearAllUndefined(program, target, program.getDefaultPointerSize())) {
 				DataType adt =
 					program.getDataTypeManager().addDataType(new PointerDataType(), null);
-				Command cmd = new CreateDataCmd(target, adt);
+				CreateDataCmd cmd = new CreateDataCmd(target, adt);
 				cmd.applyTo(program);
 			}
 			return true;
@@ -1030,8 +1037,10 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 	/**
 	 * Check if the address is in the Relocation table.
 	 * This only counts for relocatable programs.  Every address should be in the relocation table.
+	 * 
+	 * @param program program to check
 	 * @param target location to check
-	 * @return
+	 * @return true if target is valid relocation address
 	 */
 	private boolean isValidRelocationAddress(Program program, Address target) {
 		// If the program is relocatable, and this address is not one of the relocations
@@ -1039,7 +1048,7 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 		RelocationTable relocationTable = program.getRelocationTable();
 		if (relocationTable.isRelocatable()) {
 			// if it is relocatable, then there should be no pointers in memory, other than relacatable ones
-			if (relocationTable.getSize() > 0 && relocationTable.getRelocation(target) == null) {
+			if (relocationTable.getSize() != 0 && !relocationTable.hasRelocation(target)) {
 				return false;
 			}
 		}
@@ -1206,10 +1215,11 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 
 	/**
 	 * getWStrLen
-	 * @param ad = address where unicode string is supposed to begin
+	 * 
+	 * @param memory program memory to check
+	 * @param ad address where unicode string is supposed to begin
 	 * @return number of unicode chars in string, -1 if not
 	 * a unicode string.  NOTE: Only English strings are considered.
-	 *
 	 */
 	int getWStrLen(Memory memory, Address ad) {
 		try {
@@ -1236,8 +1246,8 @@ public class OperandReferenceAnalyzer extends AbstractAnalyzer {
 
 	@Override
 	public void registerOptions(Options options, Program program) {
-		HelpLocation helpLocation = new HelpLocation("AutoAnalysisPlugin",
-			"Auto_Analysis_Option_Instructions");
+		HelpLocation helpLocation =
+			new HelpLocation("AutoAnalysisPlugin", "Auto_Analysis_Option_Instructions");
 
 		if (minimumAddressTableSize == -1) {
 			calculateMinimumAddressTableSize(program);

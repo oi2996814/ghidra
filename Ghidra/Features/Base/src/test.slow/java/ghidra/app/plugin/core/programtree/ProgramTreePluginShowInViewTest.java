@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,6 +30,7 @@ import org.junit.*;
 import docking.ActionContext;
 import docking.action.DockingActionIf;
 import docking.action.ToggleDockingAction;
+import generic.theme.GIcon;
 import ghidra.app.plugin.core.codebrowser.CodeBrowserPlugin;
 import ghidra.app.plugin.core.navigation.GoToAddressLabelPlugin;
 import ghidra.app.services.*;
@@ -42,7 +43,6 @@ import ghidra.program.util.GroupPath;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.task.RunManager;
-import resources.ResourceManager;
 
 public class ProgramTreePluginShowInViewTest extends AbstractGhidraHeadedIntegrationTest {
 
@@ -277,7 +277,7 @@ public class ProgramTreePluginShowInViewTest extends AbstractGhidraHeadedIntegra
 
 		ProgramNode textNode = root.getChild(".text");
 		setSelectionPath(textNode.getTreePath());
-		DockingActionIf replaceAction = getAction(plugin, "Replace View");
+		DockingActionIf replaceAction = getAction(plugin, "Set View");
 
 		ActionContext context = getActionContext();
 		performAction(replaceAction, context, true);
@@ -312,7 +312,7 @@ public class ProgramTreePluginShowInViewTest extends AbstractGhidraHeadedIntegra
 		ProgramNode rsrcNode = root.getChild(".rsrc");
 
 		addSelectionPath(rsrcNode.getTreePath());
-		DockingActionIf replaceAction = getAction(plugin, "Replace View");
+		DockingActionIf replaceAction = getAction(plugin, "Set View");
 		ActionContext context = getActionContext();
 		performAction(replaceAction, context, true);
 
@@ -514,7 +514,7 @@ public class ProgramTreePluginShowInViewTest extends AbstractGhidraHeadedIntegra
 
 		int row = getRow(node.getTreePath());
 		JLabel comp = render(tree, node, true, isExpanded, isLeaf, row, false);
-		assertEquals(ResourceManager.loadImage(iconName), getIcon(comp));
+		assertEquals(new GIcon(iconName), getIcon(comp));
 	}
 
 	private void waitForRunManager() {

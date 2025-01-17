@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,28 +22,19 @@ import java.util.Map.Entry;
 
 import generic.jar.ResourceFile;
 import ghidra.framework.Application;
+import ghidra.util.HelpLocation;
 import help.HelpBuildUtils;
 import help.validator.links.*;
 import help.validator.location.HelpModuleCollection;
 import help.validator.model.*;
 
 public class JavaHelpValidator {
+
+	// This allows help links to signal that the reference is pointing to a file that lives outside
+	// of the help system
+	public static final String EXTERNAL_PREFIX = "external:";
+
 	private static boolean debug;
-
-	/** Files that are generated and may not exist at validation time */
-	private static Set<String> EXCLUDED_FILE_NAMES = createExcludedFileSet();
-
-	private static Set<String> createExcludedFileSet() {
-		Set<String> set = new HashSet<>();
-
-		// The expected format is the help path, without an extension (this helps catch multiple
-		// references with anchors)
-		set.add("help/topics/Misc/Tips");
-		set.add("docs/WhatsNew");
-		set.add("docs/README_PDB");
-
-		return set;
-	}
 
 	private String moduleName;
 	private HelpModuleCollection help;
@@ -95,7 +86,8 @@ public class JavaHelpValidator {
 		Map<HelpFile, Map<String, List<AnchorDefinition>>> duplicateAnchors =
 			helpCollection.getDuplicateAnchorsByFile();
 		debug("\tHelp files with duplicate anchors: " + duplicateAnchors.size());
-		for (Entry<HelpFile, Map<String, List<AnchorDefinition>>> entry : duplicateAnchors.entrySet()) {
+		for (Entry<HelpFile, Map<String, List<AnchorDefinition>>> entry : duplicateAnchors
+				.entrySet()) {
 			HelpFile helpFile = entry.getKey();
 			Map<String, List<AnchorDefinition>> list = entry.getValue();
 			linkDatabase.addDuplicateAnchors(
@@ -174,16 +166,32 @@ public class JavaHelpValidator {
 
 	private Path findPathInModules(IMG img) {
 
-		String rawSrc = img.getSrcAttribute();
-		Collection<ResourceFile> moduleRoots = Application.getModuleRootDirectories();
-		for (ResourceFile root : moduleRoots) {
-			ResourceFile resourceDir = new ResourceFile(root, "src/main/resources");
-			Path toCheck = makePath(resourceDir, rawSrc);
+		String src = img.getSrcAttribute();
+		if (src.startsWith(HelpLocation.HELP_SHARED)) {
+
+			// this prefix is a signal to look for images in a special directory inside of the 
+			// modules instead of help
+			ResourceFile myModule = Application.getMyModuleRootDirectory();
+			ResourceFile resourceDir = new ResourceFile(myModule, "src/main/resources");
+			Path toCheck = makePath(resourceDir, src);
 			if (toCheck != null) {
 				return toCheck;
 			}
 		}
 
+		return doFindPathInModules(src);
+	}
+
+	private Path doFindPathInModules(String path) {
+
+		Collection<ResourceFile> moduleRoots = Application.getModuleRootDirectories();
+		for (ResourceFile root : moduleRoots) {
+			ResourceFile resourceDir = new ResourceFile(root, "src/main/resources");
+			Path toCheck = makePath(resourceDir, path);
+			if (toCheck != null) {
+				return toCheck;
+			}
+		}
 		return null;
 	}
 
@@ -252,7 +260,7 @@ public class JavaHelpValidator {
 
 		if (helpFile == null) {
 			if (isExcludedHREF(href)) {
-				return; // ignore calls made to the the API as being invalid
+				return; // ignore calls made to the API as being invalid
 			}
 			unresolvedLinks.add(new MissingFileInvalidLink(href));
 			return;
@@ -286,7 +294,7 @@ public class JavaHelpValidator {
 			path = path.substring(0, index);
 		}
 
-		return EXCLUDED_FILE_NAMES.contains(path);
+		return path.startsWith(EXTERNAL_PREFIX);
 	}
 
 	private void validateExternalFileLinks(LinkDatabase linkDatabase) {

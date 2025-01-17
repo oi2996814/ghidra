@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,10 +18,10 @@ package ghidra.base.project;
 import java.io.*;
 import java.net.MalformedURLException;
 import java.nio.channels.OverlappingFileLockException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Iterator;
 
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
-import ghidra.app.util.Option;
 import ghidra.app.util.importer.*;
 import ghidra.app.util.opinion.*;
 import ghidra.framework.Application;
@@ -128,7 +128,7 @@ public class GhidraProject {
 	 *
 	 * @param projectDirPath the directory path to contain the new Ghidra project.
 	 * @param projectName the name of the project to be created.
-	 * @param temporary if true, deletes the the project when it is closed - useful for testing.
+	 * @param temporary if true, deletes the project when it is closed - useful for testing.
 	 * @return an open ghidra project.
 	 * @throws IOException if there was a problem accessing the project
 	 */
@@ -231,6 +231,13 @@ public class GhidraProject {
 	 */
 	public Project getProject() {
 		return project;
+	}
+
+	/**
+	 * Returns the underlying ProjectData instance.
+	 */
+	public ProjectData getProjectData() {
+		return projectData;
 	}
 
 	/**
@@ -364,7 +371,7 @@ public class GhidraProject {
 			throw new IOException("Cancelled");
 		}
 		if (id >= 0) {
-			openPrograms.put(program, new Integer(program.startTransaction("")));
+			openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 		}
 	}
 
@@ -436,7 +443,7 @@ public class GhidraProject {
 		}
 		finally {
 			if (success || id >= 0) {
-				openPrograms.put(program, new Integer(program.startTransaction("")));
+				openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 			}
 		}
 
@@ -483,14 +490,14 @@ public class GhidraProject {
 					throw new DuplicateFileException("File already exists: " + file);
 				}
 			}
-			program.saveToPackedFile(file, TaskMonitorAdapter.DUMMY_MONITOR);
+			program.saveToPackedFile(file, TaskMonitorAdapter.DUMMY);
 		}
 		catch (CancelledException e1) {
 			throw new IOException("Cancelled");
 		}
 		finally {
 			if (success || id >= 0) {
-				openPrograms.put(program, new Integer(program.startTransaction("")));
+				openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 			}
 		}
 	}
@@ -508,7 +515,7 @@ public class GhidraProject {
 			throw new IllegalStateException("Cannot checkpoint a read-only program");
 		}
 		program.endTransaction(id.intValue(), true);
-		openPrograms.put(program, new Integer(program.startTransaction("")));
+		openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 	}
 
 	/**
@@ -523,7 +530,7 @@ public class GhidraProject {
 			throw new IllegalStateException("Cannot rollback a read-only program");
 		}
 		program.endTransaction(id.intValue(), false);
-		openPrograms.put(program, new Integer(program.startTransaction("")));
+		openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 	}
 
 	/**
@@ -592,21 +599,17 @@ public class GhidraProject {
 			AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(program);
 			mgr.initializeOptions();
 		}
-		openPrograms.put(program, new Integer(id));
+		openPrograms.put(program, id);
 	}
 
-	public Program importProgram(File file, Language language, CompilerSpec compilerSpec)
-			throws CancelledException, DuplicateNameException, InvalidNameException,
-			VersionException, IOException {
-		return importProgram(file, (DomainFolder) null, language, compilerSpec);
-	}
-
-	public Program importProgram(File file, DomainFolder domainFolder, Language language,
+	public Program importProgram(File file, Language language,
 			CompilerSpec compilerSpec) throws CancelledException, DuplicateNameException,
 			InvalidNameException, VersionException, IOException {
 		MessageLog messageLog = new MessageLog();
-		Program program = AutoImporter.importByLookingForLcs(file, domainFolder, language,
-			compilerSpec, this, messageLog, MONITOR);
+		LoadResults<Program> loadResults = AutoImporter.importByLookingForLcs(file, project, null,
+			language, compilerSpec, this, messageLog, MONITOR);
+		Program program = loadResults.getPrimaryDomainObject();
+		loadResults.releaseNonPrimary(this);
 		initializeProgram(program, false);
 		return program;
 	}
@@ -623,8 +626,10 @@ public class GhidraProject {
 			throws CancelledException, DuplicateNameException, InvalidNameException,
 			VersionException, IOException {
 		MessageLog messageLog = new MessageLog();
-		Program program = AutoImporter.importByUsingSpecificLoaderClass(file, null, loaderClass,
-			null, this, messageLog, MONITOR);
+		LoadResults<Program> loadResults = AutoImporter.importByUsingSpecificLoaderClass(file,
+			project, null, loaderClass, null, this, messageLog, MONITOR);
+		Program program = loadResults.getPrimaryDomainObject();
+		loadResults.releaseNonPrimary(this);
 		initializeProgram(program, false);
 		return program;
 	}
@@ -635,25 +640,20 @@ public class GhidraProject {
 		MessageLog messageLog = new MessageLog();
 		SingleLoaderFilter loaderFilter = new SingleLoaderFilter(loaderClass, null);
 		LcsHintLoadSpecChooser opinionChoose = new LcsHintLoadSpecChooser(language, compilerSpec);
-		List<Program> programs = AutoImporter.importFresh(file, null, this, messageLog, MONITOR,
-			loaderFilter, opinionChoose, null, new LoaderArgsOptionChooser(loaderFilter),
-			MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
+		LoadResults<Program> loadResults =
+			AutoImporter.importFresh(file, project, null, this, messageLog, MONITOR, loaderFilter,
+				opinionChoose, null, new LoaderArgsOptionChooser(loaderFilter));
+		loadResults.releaseNonPrimary(this);
+		return loadResults.getPrimaryDomainObject();
 	}
 
-	public Program importProgram(File file) throws CancelledException, DuplicateNameException,
-			InvalidNameException, VersionException, IOException {
-		return importProgram(file, (DomainFolder) null);
-	}
-
-	public Program importProgram(File file, DomainFolder domainFolder) throws CancelledException,
+	public Program importProgram(File file) throws CancelledException,
 			DuplicateNameException, InvalidNameException, VersionException, IOException {
 		MessageLog messageLog = new MessageLog();
-		Program program =
-			AutoImporter.importByUsingBestGuess(file, domainFolder, this, messageLog, MONITOR);
+		LoadResults<Program> loadResults = AutoImporter.importByUsingBestGuess(file, project,
+			null, this, messageLog, MONITOR);
+		Program program = loadResults.getPrimaryDomainObject();
+		loadResults.releaseNonPrimary(this);
 		initializeProgram(program, false);
 		return program;
 	}
@@ -688,21 +688,13 @@ public class GhidraProject {
 
 		MessageLog messageLog = new MessageLog();
 
-		OptionChooser EMPTY_OPTIONS = (optionChoices, addressFactory) -> {
-			Option option = new Option(AbstractLibrarySupportLoader.SYM_OPTION_NAME, false);
-			ArrayList<Option> arrayList = new ArrayList<>();
-			arrayList.add(option);
-			return arrayList;
-		};
-
 		String programNameOverride = null;
-		List<Program> programs = AutoImporter.importFresh(file, null, this, messageLog, MONITOR,
-			LoaderService.ACCEPT_ALL, LoadSpecChooser.CHOOSE_THE_FIRST_PREFERRED,
-			programNameOverride, EMPTY_OPTIONS, MultipleProgramsStrategy.ONE_PROGRAM_OR_NULL);
-		if (programs != null && programs.size() == 1) {
-			return programs.get(0);
-		}
-		return null;
+		LoadResults<Program> loadResults =
+			AutoImporter.importFresh(file, project, null, this, messageLog, MONITOR,
+				LoaderService.ACCEPT_ALL, LoadSpecChooser.CHOOSE_THE_FIRST_PREFERRED,
+				programNameOverride, OptionChooser.DEFAULT_OPTIONS);
+		loadResults.releaseNonPrimary(this);
+		return loadResults.getPrimaryDomainObject();
 	}
 
 //==================================================================================================

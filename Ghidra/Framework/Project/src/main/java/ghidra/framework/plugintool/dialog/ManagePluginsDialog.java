@@ -15,42 +15,46 @@
  */
 package ghidra.framework.plugintool.dialog;
 
-import java.awt.Color;
 import java.awt.Point;
 
 import javax.swing.*;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 
 import docking.ActionContext;
-import docking.DialogComponentProvider;
+import docking.ReusableDialogComponentProvider;
 import docking.action.*;
 import docking.tool.ToolConstants;
 import docking.widgets.OptionDialog;
+import generic.theme.GIcon;
 import ghidra.app.util.GenericHelpTopics;
 import ghidra.framework.main.AppInfo;
+import ghidra.framework.plugintool.PluginConfigurationModel;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.util.PluginPackage;
 import ghidra.util.HelpLocation;
-import ghidra.util.classfinder.ClassSearcher;
-import resources.ResourceManager;
+import resources.Icons;
 
-public class ManagePluginsDialog extends DialogComponentProvider implements ChangeListener {
+public class ManagePluginsDialog extends ReusableDialogComponentProvider {
 
 	private PluginTool tool;
 	private boolean isNewTool;
 	private DockingAction saveAction;
 	private DockingAction saveAsAction;
 	private DockingAction configureAllPluginsAction;
-	private PluginManagerComponent comp;
+	private PluginManagerComponent pluginComponent;
+	private PluginConfigurationModel pluginConfigurationModel;
 
 	public ManagePluginsDialog(PluginTool tool, boolean addSaveActions, boolean isNewTool) {
+		this(tool, new PluginConfigurationModel(tool), addSaveActions, isNewTool);
+	}
+
+	public ManagePluginsDialog(PluginTool tool, PluginConfigurationModel pluginConfigurationModel,
+			boolean addSaveActions, boolean isNewTool) {
 		super("Configure Tool", false, true, true, true);
 		this.tool = tool;
 		this.isNewTool = isNewTool;
-		ClassSearcher.addChangeListener(this);
-		comp = new PluginManagerComponent(tool);
-		JScrollPane scrollPane = new JScrollPane(comp);
-		scrollPane.getViewport().setBackground(Color.white);
+		this.pluginConfigurationModel = pluginConfigurationModel;
+		pluginComponent = new PluginManagerComponent(tool, pluginConfigurationModel);
+		JScrollPane scrollPane = new JScrollPane(pluginComponent);
 		scrollPane.getViewport().setViewPosition(new Point(0, 0));
 		addWorkPanel(scrollPane);
 		createActions(addSaveActions);
@@ -90,7 +94,6 @@ public class ManagePluginsDialog extends DialogComponentProvider implements Chan
 				save();
 			}
 		}
-		ClassSearcher.removeChangeListener(this);
 		close();
 	}
 
@@ -99,14 +102,14 @@ public class ManagePluginsDialog extends DialogComponentProvider implements Chan
 			new DockingAction("Configure All Plugins", ToolConstants.TOOL_OWNER) {
 				@Override
 				public void actionPerformed(ActionContext context) {
-					comp.manageAllPlugins();
+					pluginComponent.manageAllPlugins();
 				}
 			};
-		ImageIcon icon = ResourceManager.loadImage("images/plugin.png");
+		Icon icon = new GIcon("icon.extension.configure");
 		configureAllPluginsAction.setToolBarData(new ToolBarData(icon, "aaa"));
 		configureAllPluginsAction.setDescription("Configure All Plugins");
-		configureAllPluginsAction.setHelpLocation(
-			new HelpLocation(GenericHelpTopics.TOOL, "ConfigureAllPlugins"));
+		configureAllPluginsAction
+				.setHelpLocation(new HelpLocation(GenericHelpTopics.TOOL, "ConfigureAllPlugins"));
 		addAction(configureAllPluginsAction);
 
 		if (addSaveActions) {
@@ -117,7 +120,7 @@ public class ManagePluginsDialog extends DialogComponentProvider implements Chan
 				}
 			};
 			saveAction.setEnabled(tool.hasConfigChanged());
-			icon = ResourceManager.loadImage("images/disk.png");
+			icon = Icons.SAVE_ICON;
 			String saveGroup = "save";
 			saveAction.setMenuBarData(new MenuData(new String[] { "Save" }, icon, saveGroup));
 			saveAction.setToolBarData(new ToolBarData(icon, saveGroup));
@@ -132,14 +135,18 @@ public class ManagePluginsDialog extends DialogComponentProvider implements Chan
 				}
 			};
 			saveAsAction.setEnabled(true);
-			icon = ResourceManager.loadImage("images/disk_save_as.png");
-			saveAsAction.setMenuBarData(
-				new MenuData(new String[] { "Save As..." }, icon, saveGroup));
+			icon = Icons.SAVE_AS_ICON;
+			saveAsAction
+					.setMenuBarData(new MenuData(new String[] { "Save As..." }, icon, saveGroup));
 			saveAsAction.setToolBarData(new ToolBarData(icon, saveGroup));
 			saveAsAction.setHelpLocation(new HelpLocation(GenericHelpTopics.TOOL, "SaveTool"));
 			saveAsAction.setDescription("Save tool to new name in tool chest");
 			addAction(saveAsAction);
 		}
+	}
+
+	public PluginConfigurationModel getPluginConfigurationModel() {
+		return pluginConfigurationModel;
 	}
 
 	private void save() {
@@ -158,15 +165,21 @@ public class ManagePluginsDialog extends DialogComponentProvider implements Chan
 		isNewTool = false;
 	}
 
-	@Override
-	public void stateChanged(ChangeEvent e) {
-		//comp.refresh();
-	}
-
 	public void stateChanged() {
 		if (saveAction != null) {
 			saveAction.setEnabled(tool.hasConfigChanged());
 		}
 	}
 
+	int getPackageCount() {
+		return pluginComponent.getPackageCount();
+	}
+
+	int getPluginCount(PluginPackage pluginPackage) {
+		return pluginComponent.getPluginCount(pluginPackage);
+	}
+
+	PluginManagerComponent getPluginComponent() {
+		return pluginComponent;
+	}
 }

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,20 +16,16 @@
 package ghidra.app.util.navigation;
 
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.LinkedList;
 import java.util.List;
 
 import javax.swing.*;
 import javax.swing.border.Border;
-import javax.swing.event.HyperlinkEvent;
-import javax.swing.event.HyperlinkListener;
 
-import docking.DialogComponentProvider;
 import docking.DockingWindowManager;
+import docking.ReusableDialogComponentProvider;
 import docking.tool.ToolConstants;
-import docking.widgets.HyperlinkComponent;
+import docking.widgets.GHyperlinkComponent;
 import docking.widgets.checkbox.GCheckBox;
 import docking.widgets.combobox.GhidraComboBox;
 import ghidra.GhidraOptions;
@@ -44,7 +40,8 @@ import ghidra.program.model.address.Address;
 import ghidra.util.HelpLocation;
 import ghidra.util.task.TaskMonitorComponent;
 
-public class GoToAddressLabelDialog extends DialogComponentProvider implements GoToServiceListener {
+public class GoToAddressLabelDialog extends ReusableDialogComponentProvider
+		implements GoToServiceListener {
 
 	//////////////////////////////////////////////////////////////////////
 	//                                                                  //
@@ -54,7 +51,8 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 
 	private static final String DIALOG_TITLE = "Go To ...";
 
-	private static final String ANCHOR_NAME = "EXPRESSION";
+	private static final String EXPRESSION_ANCHOR_NAME = "GoTo_Expression";
+	private static final String FILE_OFFSET_ANCHOR_NAME = "GoTo_File_Offset";
 	private static final int DEFAULT_MAX_GOTO_ENTRIES = 10;
 
 	//////////////////////////////////////////////////////////////////////
@@ -77,7 +75,7 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 
 	private Navigatable navigatable;
 
-	private HyperlinkComponent hyperlink;
+	private GHyperlinkComponent hyperlink;
 
 	private JCheckBox includeDynamicBox;
 
@@ -100,6 +98,9 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 
 	/**
 	 * Popup up the dialog in the center of the tool.
+	 * @param nav the Navigatable
+	 * @param addr the address
+	 * @param tool the PluginTool
 	 */
 	public void show(Navigatable nav, Address addr, PluginTool tool) {
 		this.navigatable = nav;
@@ -157,9 +158,8 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 
 	private void initializeContents() {
 		if (goToMemory) {
-			JTextField field = (JTextField) comboBox.getEditor().getEditorComponent();
-			field.selectAll();
-			field.requestFocus();
+			comboBox.selectAll();
+			comboBox.requestFocus();
 		}
 		else {
 			comboBox.setSelectedItem(null);
@@ -168,6 +168,7 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 
 	/**
 	 * Builds the main panel for this dialog.
+	 * @return the main panel for this dialog
 	 */
 	final protected JPanel buildMainPanel() {
 
@@ -181,31 +182,28 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 		gbc.gridwidth = 2;
 		gbc.insets = new Insets(5, 5, 5, 5);
 
-		hyperlink = new HyperlinkComponent("<html>Enter an address, label or " + "<a href=\"" +
-			ANCHOR_NAME + "\">expression</a>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
-		DockingWindowManager.setHelpLocation(hyperlink,
-			new HelpLocation(HelpTopics.NAVIGATION, "gotoexpression"));
-
-		hyperlink.addHyperlinkListener(ANCHOR_NAME, new HyperlinkListener() {
-			@Override
-			public void hyperlinkUpdate(HyperlinkEvent e) {
-				if (e.getEventType() != HyperlinkEvent.EventType.ACTIVATED) {
-					return;
-				}
-				showExpressionHelp();
-			}
+		hyperlink = new GHyperlinkComponent();
+		hyperlink.addText("Enter an address, label, ");
+		hyperlink.addLink("expression,", () -> {
+			HelpLocation loc = new HelpLocation(HelpTopics.NAVIGATION, EXPRESSION_ANCHOR_NAME);
+			DockingWindowManager.getHelpService().showHelp(loc);
 		});
-		inner.add(hyperlink);
+
+		hyperlink.addText(" or ");
+		hyperlink.addLink("file offset:", () -> {
+			HelpLocation loc = new HelpLocation(HelpTopics.NAVIGATION, FILE_OFFSET_ANCHOR_NAME);
+			DockingWindowManager.getHelpService().showHelp(loc);
+		});
+
 		inner.add(hyperlink, gbc);
 
 		comboBox = new GhidraComboBox<>();
 		comboBox.setEditable(true);
-		comboBox.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				okCallback();
-			}
-		});
+		comboBox.addActionListener(evt -> okCallback());
+		String comboName = "Go To Address or Label Text Field / Combobox";
+		comboBox.setName(comboName);
+		comboBox.getAccessibleContext().setAccessibleName(comboName);
+
 		gbc.insets = new Insets(2, 5, 2, 0);
 		gbc.gridx = 0;
 		gbc.gridy = 1;
@@ -215,12 +213,18 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 		caseSensitiveBox = new GCheckBox("Case sensitive", false);
 		gbc.gridy = 2;
 		gbc.gridwidth = 1;
+		String caseSensitiveCheckBoxName = "Case Sensitive Checkbox";
+		caseSensitiveBox.setName(caseSensitiveCheckBoxName);
+		caseSensitiveBox.getAccessibleContext().setAccessibleName(caseSensitiveCheckBoxName);
 		inner.add(caseSensitiveBox, gbc);
 
 		includeDynamicBox = new GCheckBox("Dynamic labels", true);
-		includeDynamicBox.setToolTipText("Include dynamic lables in the search (slower)");
+		includeDynamicBox.setToolTipText("Include dynamic labels in the search (slower)");
 		gbc.gridx = 1;
 		inner.add(includeDynamicBox, gbc);
+		String dynamicCheckBoxName = "Dynamic Checkbox";
+		includeDynamicBox.setName(dynamicCheckBoxName);
+		includeDynamicBox.getAccessibleContext().setAccessibleName(dynamicCheckBoxName);
 
 		mainPanel = new JPanel(new BorderLayout());
 		Border emptyBorder = BorderFactory.createEmptyBorder(5, 5, 0, 5);
@@ -228,11 +232,6 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 		mainPanel.add(inner, BorderLayout.NORTH);
 
 		return mainPanel;
-	}
-
-	protected void showExpressionHelp() {
-		DockingWindowManager.getHelpService().showHelp(hyperlink, false, hyperlink);
-
 	}
 
 	private void writeHistory(SaveState saveState) {
@@ -386,12 +385,6 @@ public class GoToAddressLabelDialog extends DialogComponentProvider implements G
 
 	// JUnits
 	public void setText(String text) {
-		try {
-			Component comp = comboBox.getEditor().getEditorComponent();
-			((JTextField) comp).setText(text);
-		}
-		catch (Exception e) {
-			throw new RuntimeException(e);
-		}
+		comboBox.setText(text);
 	}
 }

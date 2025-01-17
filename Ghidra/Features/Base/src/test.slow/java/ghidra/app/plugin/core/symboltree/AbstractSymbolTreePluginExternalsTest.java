@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -43,18 +43,17 @@ import ghidra.framework.main.datatree.DataTree;
 import ghidra.framework.main.datatree.ProjectDataTreePanel;
 import ghidra.framework.model.*;
 import ghidra.framework.plugintool.PluginTool;
-import ghidra.framework.store.LockException;
 import ghidra.program.database.symbol.LibrarySymbol;
-import ghidra.program.model.address.*;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
-import ghidra.program.model.mem.MemoryConflictException;
 import ghidra.program.model.symbol.*;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.test.TestEnv;
 import ghidra.util.SystemUtilities;
-import ghidra.util.exception.*;
+import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -158,7 +157,7 @@ public abstract class AbstractSymbolTreePluginExternalsTest
 
 	protected ExternalLocation setupExternalLocation(String library, String label, Address address,
 			SourceType sourceType, boolean isFunction)
-			throws InvalidInputException, DuplicateNameException {
+			throws Exception {
 		boolean success = false;
 		int transactionID =
 			program.startTransaction("Setting Up External Location " + library + "::" + label);
@@ -181,12 +180,12 @@ public abstract class AbstractSymbolTreePluginExternalsTest
 	}
 
 	protected ExternalLocation setupExternalLocation(String library, String label, Address address,
-			SourceType sourceType) throws InvalidInputException, DuplicateNameException {
+			SourceType sourceType) throws Exception {
 		return setupExternalLocation(library, label, address, sourceType, false);
 	}
 
 	protected ExternalLocation setupExternalFunction(String library, String label, Address address,
-			SourceType sourceType) throws InvalidInputException, DuplicateNameException {
+			SourceType sourceType) throws Exception {
 		return setupExternalLocation(library, label, address, sourceType, true);
 	}
 
@@ -436,6 +435,9 @@ public abstract class AbstractSymbolTreePluginExternalsTest
 				createDialog.getComponent().getRootPane(), EditExternalLocationPanel.class);
 			AddressInput extAddressInputWidget =
 				(AddressInput) getInstanceField("extAddressInputWidget", extLocPanel);
+			extAddressInputWidget.setAddressSpace(addressSpace);
+			extAddressInputWidget.setText(address);
+
 			if (extAddressInputWidget.containsAddressSpaces()) {
 				JComboBox<?> addressSpaceWidget =
 					(JComboBox<?>) getInstanceField("combo", extAddressInputWidget);
@@ -448,8 +450,7 @@ public abstract class AbstractSymbolTreePluginExternalsTest
 	}
 
 	protected void addOverlayBlock(String name, String startAddress, long length)
-			throws LockException, DuplicateNameException, MemoryConflictException,
-			AddressOverflowException, CancelledException {
+			throws Exception {
 		int transactionID = program.startTransaction("Add Overlay Block to test");
 		Address address = program.getAddressFactory().getAddress(startAddress);
 		Memory memory = program.getMemory();

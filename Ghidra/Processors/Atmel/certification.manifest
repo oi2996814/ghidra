@@ -1,5 +1,6 @@
 ##VERSION: 2.0
 Module.manifest||GHIDRA||||END|
+README.md||GHIDRA||||END|
 data/languages/atmega256.pspec||GHIDRA||||END|
 data/languages/avr32.opinion||GHIDRA||||END|
 data/languages/avr32a.cspec||GHIDRA||||END|
@@ -34,3 +35,5 @@ data/languages/avr8xmega.pspec||GHIDRA||||END|
 data/languages/avr8xmega.slaspec||GHIDRA||||END|
 data/manuals/AVR32.idx||GHIDRA||||END|
 data/manuals/AVR8.idx||GHIDRA||||END|
+data/patterns/AVR8_patterns.xml||GHIDRA||||END|
+data/patterns/patternconstraints.xml||GHIDRA||||END|

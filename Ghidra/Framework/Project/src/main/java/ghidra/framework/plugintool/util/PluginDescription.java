@@ -51,6 +51,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 
 	private static HashMap<Class<? extends Plugin>, PluginDescription> CACHE = new HashMap<>();
 	private static final String DOTCLASS_EXT = ".class";
+	private static final String NO_CATEGORY = "NO_CATEGORY";
 
 	private final Class<? extends Plugin> pluginClass;
 	private final String name;
@@ -67,7 +68,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 	private final List<Class<? extends PluginEvent>> eventsConsumed;
 	private final List<Class<? extends PluginEvent>> eventsProduced;
 
-	private PluginDescription(Class<? extends Plugin> pluginClass, String pluginPackageName,
+	PluginDescription(Class<? extends Plugin> pluginClass, String pluginPackageName,
 			String category, String shortDescription, String description, PluginStatus status,
 			boolean isSlowInstallation, List<Class<?>> servicesRequired,
 			List<Class<?>> servicesProvided, List<Class<? extends PluginEvent>> eventsConsumed,
@@ -94,7 +95,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 
 	/**
 	 * Returns true if this plugin requires a noticeable amount of time to load when installed.
-	 * @return
+	 * @return true if this plugin requires a noticeable amount of time to load when installed.
 	 */
 	public boolean isSlowInstallation() {
 		return isSlowInstallation;
@@ -141,20 +142,20 @@ public class PluginDescription implements Comparable<PluginDescription> {
 
 	/**
 	 * Return the name of the plugin.
+	 * @return the name of the plugin.
 	 */
 	public String getName() {
 		return name;
 	}
 
 	/**
-	 * Return the type for the plugin: CORE, CONTRIB, PROTOTYPE, or
-	 * DEVELOP. Within a type, plugins are grouped by category.
-	 * @return the type (or null if there is no module)
+	 * Return the name of the module that contains the plugin.
+	 * @return the module name
 	 */
 	public String getModuleName() {
 		if (moduleName == null) {
-			ResourceFile moduleRootDirectory = Application.getMyModuleRootDirectory();
-			moduleName = (moduleRootDirectory == null) ? null : moduleRootDirectory.getName();
+			ResourceFile moduleDir = Application.getModuleContainingClass(pluginClass);
+			moduleName = (moduleDir == null) ? "<No Module>" : moduleDir.getName();
 		}
 
 		return moduleName;
@@ -186,6 +187,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 
 	/**
 	 * Returns the development status of the plugin.
+	 * @return the status.
 	 */
 	public PluginStatus getStatus() {
 		return status;
@@ -253,9 +255,9 @@ public class PluginDescription implements Comparable<PluginDescription> {
 		return name.compareTo(other.name);
 	}
 
-	//-------------------------------------------------------------------------------------
-	// static methods that we don't care about
-	//-------------------------------------------------------------------------------------
+//==================================================================================================
+// static methods that will eventually be removed as old client plugins have been updated
+//==================================================================================================
 
 	/**
 	 * Constructs a new PluginDescription for the given plugin class.
@@ -369,7 +371,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 	 */
 	private static PluginDescription createDefaultPluginDescription(Class<? extends Plugin> c) {
 		return new PluginDescription(c, MiscellaneousPluginPackage.NAME,
-			PluginCategoryNames.UNMANAGED, null, null, PluginStatus.UNSTABLE, false,
+			NO_CATEGORY, null, null, PluginStatus.UNSTABLE, false,
 			Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
 			Collections.emptyList());
 	}

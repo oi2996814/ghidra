@@ -29,6 +29,7 @@ import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.*;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.*;
 import ghidra.util.exception.*;
@@ -59,7 +60,11 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 		setKeyBindingData(new KeyBindingData(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK));
 	}
 
-	private void retypeSymbol(Program program, HighSymbol highSymbol, Varnode exactSpot,
+	protected RetypeLocalAction(String name) {
+		super(name);
+	}
+
+	protected void retypeSymbol(Program program, HighSymbol highSymbol, Varnode exactSpot,
 			DataType dt, PluginTool tool) {
 		HighFunction hfunction = highSymbol.getHighFunction();
 
@@ -92,11 +97,7 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 					hfunction.getFunction().getSignatureSource() != SourceType.DEFAULT;
 				try {
 					HighFunctionDBUtil.commitParamsToDatabase(hfunction, useDataTypes,
-						SourceType.USER_DEFINED);
-					if (useDataTypes) {
-						HighFunctionDBUtil.commitReturnToDatabase(hfunction,
-							SourceType.USER_DEFINED);
-					}
+						ReturnCommitOption.NO_COMMIT, SourceType.USER_DEFINED);
 				}
 				catch (DuplicateNameException e) {
 					throw new AssertException("Unexpected exception", e);
@@ -140,7 +141,7 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 		if (!tokenAtCursor.isVariableRef()) {
 			return false;
 		}
-		HighSymbol highSymbol = findHighSymbolFromToken(tokenAtCursor, context.getHighFunction());
+		HighSymbol highSymbol = tokenAtCursor.getHighSymbol(context.getHighFunction());
 		if (highSymbol == null) {
 			return false;
 		}
@@ -154,7 +155,7 @@ public class RetypeLocalAction extends AbstractDecompilerAction {
 		ClangToken tokenAtCursor = context.getTokenAtCursor();
 
 		DataType dataType = null;
-		HighSymbol highSymbol = findHighSymbolFromToken(tokenAtCursor, context.getHighFunction());
+		HighSymbol highSymbol = tokenAtCursor.getHighSymbol(context.getHighFunction());
 		if (highSymbol == null) {
 			return;
 		}

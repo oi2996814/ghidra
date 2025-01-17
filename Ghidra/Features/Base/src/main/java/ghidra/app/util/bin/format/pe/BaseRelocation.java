@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.program.model.data.*;
 import ghidra.util.DataConverter;
 import ghidra.util.exception.DuplicateNameException;
@@ -85,33 +84,20 @@ public class BaseRelocation implements StructConverter, ByteArrayConverter {
     private int sizeOfBlock;
     private List<TypeOffset> typeOffsetList = new ArrayList<TypeOffset>();
 
-    static BaseRelocation createBaseRelocation(
-            FactoryBundledWithBinaryReader reader, int index)
-            throws IOException {
-        BaseRelocation baseRelocation = (BaseRelocation) reader.getFactory().create(BaseRelocation.class);
-        baseRelocation.initBaseRelocation(reader, index);
-        return baseRelocation;
-    }
+	BaseRelocation(BinaryReader reader, int index) throws IOException {
+         virtualAddress = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
+         sizeOfBlock    = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
+         if (virtualAddress < 0) return;
+         if (sizeOfBlock < 0 || sizeOfBlock > NTHeader.MAX_SANE_COUNT) return;
 
-    /**
-     * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-     */
-    public BaseRelocation() {}
+ 		int len = (sizeOfBlock-IMAGE_SIZEOF_BASE_RELOCATION)/BinaryReader.SIZEOF_SHORT;
 
-    private void initBaseRelocation(FactoryBundledWithBinaryReader reader, int index) throws IOException {
-        virtualAddress = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
-        sizeOfBlock    = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
-        if (virtualAddress < 0) return;
-        if (sizeOfBlock < 0 || sizeOfBlock > NTHeader.MAX_SANE_COUNT) return;
+ 		for (int i = 0 ; i < len ; ++i) {
+ 			short typeOffset = reader.readShort(index);
+ 			index += BinaryReader.SIZEOF_SHORT;
 
-		int len = (sizeOfBlock-IMAGE_SIZEOF_BASE_RELOCATION)/BinaryReader.SIZEOF_SHORT;
-
-		for (int i = 0 ; i < len ; ++i) {
-			short typeOffset = reader.readShort(index);
-			index += BinaryReader.SIZEOF_SHORT;
-
-			typeOffsetList.add(new TypeOffset(typeOffset));
-        }
+ 			typeOffsetList.add(new TypeOffset(typeOffset));
+         }
     }
 
 	BaseRelocation(int virtualAddress) {
@@ -173,9 +159,7 @@ public class BaseRelocation implements StructConverter, ByteArrayConverter {
         return typeOffsetList.get(index).type;
     }
 
-    /**
-     * @see ghidra.app.util.bin.StructConverter#toDataType()
-     */
+	@Override
     public DataType toDataType() throws DuplicateNameException {
         StructureDataType struct = new StructureDataType(NAME, 0);
 
@@ -188,9 +172,7 @@ public class BaseRelocation implements StructConverter, ByteArrayConverter {
         return struct;
     }
 
-	/**
-	 * @see ghidra.app.util.bin.ByteArrayConverter#toBytes(ghidra.util.DataConverter)
-	 */
+	@Override
 	public byte[] toBytes(DataConverter dc) {
 		byte [] bytes = new byte[sizeOfBlock];
 		int pos = 0;

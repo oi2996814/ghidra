@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,11 +25,12 @@ import org.junit.Test;
 
 import docking.ComponentProvider;
 import docking.DialogComponentProvider;
+import docking.widgets.combobox.GhidraComboBox;
 import docking.widgets.table.threaded.ThreadedTableModel;
-import ghidra.GhidraOptions;
 import ghidra.app.plugin.core.searchtext.SearchTextPlugin;
 import ghidra.app.plugin.core.string.StringTableProvider;
 import ghidra.app.plugin.core.table.TableComponentProvider;
+import ghidra.app.util.SearchConstants;
 
 /**
  * Captures screenshots associated with Memory Search.
@@ -105,8 +106,10 @@ public class SearchScreenShots extends AbstractSearchScreenShots {
 		JRadioButton rbAll = (JRadioButton) getInstanceField("searchAllRB", dialog);
 		rbAll.setSelected(true);
 
-		JTextField textField = (JTextField) getInstanceField("valueField", dialog);
-		setText(textField, "LAB");
+		@SuppressWarnings("unchecked")
+		GhidraComboBox<String> comboBox =
+			(GhidraComboBox<String>) getInstanceField("valueComboBox", dialog);
+		setComboBoxSelection(comboBox, "LAB");
 
 		final JButton allButton = (JButton) getInstanceField("allButton", dialog);
 		pressButton(allButton);
@@ -157,7 +160,7 @@ public class SearchScreenShots extends AbstractSearchScreenShots {
 		// custom program we've loaded.  Also, we are NOT changing the option so that dialog
 		// that is shown will have the default value
 		searchPlugin = env.getPlugin(SearchTextPlugin.class);
-		searchPlugin.optionsChanged(null, GhidraOptions.OPTION_SEARCH_LIMIT, null, 10);
+		searchPlugin.optionsChanged(null, SearchConstants.SEARCH_LIMIT_NAME, null, 10);
 
 		performAction("Search Text", "SearchTextPlugin", false);
 		waitForSwing();
@@ -167,8 +170,10 @@ public class SearchScreenShots extends AbstractSearchScreenShots {
 		JRadioButton rbAll = (JRadioButton) getInstanceField("searchAllRB", dialog);
 		rbAll.setSelected(true);
 
-		JTextField textField = (JTextField) getInstanceField("valueField", dialog);
-		setText(textField, "0");
+		@SuppressWarnings("unchecked")
+		GhidraComboBox<String> comboBox =
+			(GhidraComboBox<String>) getInstanceField("valueComboBox", dialog);
+		setComboBoxSelection(comboBox, "0");
 
 		final JButton allButton = (JButton) getInstanceField("allButton", dialog);
 		pressButton(allButton);

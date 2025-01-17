@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,13 @@
  */
 package ghidra.program.util;
 
+import java.util.*;
+
 import ghidra.program.model.address.*;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.lang.RegisterValue;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-
-import java.util.*;
 
 /**
  * This is a generalized class for storing register values over ranges.  The values include mask bits
@@ -123,9 +123,11 @@ public class RegisterValueStore {
 				// Ensure that transaction is open to avoid delayed error condition
 				rangeMap.checkWritableState();
 			}
-			rangeWriteCacheValue = newValue;
-			rangeWriteCacheMin = start;
-			rangeWriteCacheMax = end;
+			synchronized (this) {
+				rangeWriteCacheValue = newValue;
+				rangeWriteCacheMin = start;
+				rangeWriteCacheMax = end;
+			}
 			return;
 		}
 
@@ -150,9 +152,7 @@ public class RegisterValueStore {
 		while (rangeIt.hasNext()) {
 			list.add(rangeIt.next());
 		}
-		Iterator<AddressRange> it = list.iterator();
-		while (it.hasNext()) {
-			AddressRange indexRange = it.next();
+		for (AddressRange indexRange : list) {
 			Address rangeStart = indexRange.getMinAddress();
 			Address rangeEnd = indexRange.getMaxAddress();
 			if (rangeStart.compareTo(start) > 0) {
@@ -192,6 +192,8 @@ public class RegisterValueStore {
 	 */
 	public void clearValue(Address start, Address end, Register register) {
 
+		AddressRange.checkValidRange(start, end);
+
 		flushWriteCache();
 
 		// if the mask is all on, then just clear any values that are stored in this range
@@ -206,9 +208,7 @@ public class RegisterValueStore {
 		while (rangeIt.hasNext()) {
 			list.add(rangeIt.next());
 		}
-		Iterator<AddressRange> it = list.iterator();
-		while (it.hasNext()) {
-			AddressRange indexRange = it.next();
+		for (AddressRange indexRange : list) {
 			Address rangeStart = indexRange.getMinAddress();
 			Address rangeEnd = indexRange.getMaxAddress();
 
@@ -230,21 +230,27 @@ public class RegisterValueStore {
 
 	/**
 	 * Returns the RegisterValue (value and mask) associated with the given address. 
+	 * @param register register (base or child) for which context value should be returned
 	 * @param address the address at which to get the RegisterValue.
 	 * @return the RegisterValue 
 	 */
 	public RegisterValue getValue(Register register, Address address) {
 
-		if (rangeWriteCacheValue != null && address.compareTo(rangeWriteCacheMin) >= 0 &&
-			address.compareTo(rangeWriteCacheMax) <= 0) {
-			return rangeWriteCacheValue.getRegisterValue(register);
+		RegisterValue value = null;
+		byte[] bytes = rangeMap.getValue(address);
+		if (bytes != null) {
+			value = new RegisterValue(register, bytes);
 		}
 
-		byte[] bytes = rangeMap.getValue(address);
-		if (bytes == null) {
-			return null;
+		synchronized (this) {
+			if (rangeWriteCacheValue != null && address.compareTo(rangeWriteCacheMin) >= 0 &&
+				address.compareTo(rangeWriteCacheMax) <= 0) {
+				value = value != null ? value.combineValues(rangeWriteCacheValue)
+						: rangeWriteCacheValue;
+				return value.getRegisterValue(register);
+			}
 		}
-		return new RegisterValue(register, bytes);
+		return value;
 	}
 
 	/**
@@ -311,7 +317,7 @@ public class RegisterValueStore {
 	}
 
 	/**
-	 * Returns the bounding address-range containing addr and the the same value throughout.
+	 * Returns the bounding address-range containing addr and the same value throughout.
 	 * This range will be limited by any value change associated with the base register.
 	 * @param addr the contained address
 	 * @return single value address-range containing addr
@@ -322,6 +328,13 @@ public class RegisterValueStore {
 		flushWriteCache();
 
 		return rangeMap.getValueRangeContaining(addr);
+	}
+
+	/**
+	 * Notifies that something changed, may need to invalidate any caches
+	 */
+	public void invalidate() {
+		rangeMap.invalidate();
 	}
 
 }

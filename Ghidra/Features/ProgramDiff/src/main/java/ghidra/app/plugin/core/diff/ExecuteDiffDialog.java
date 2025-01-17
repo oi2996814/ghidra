@@ -23,8 +23,8 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.TitledBorder;
 
-import docking.DialogComponentProvider;
 import docking.DockingUtils;
+import docking.ReusableDialogComponentProvider;
 import docking.widgets.checkbox.GCheckBox;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Program;
@@ -37,7 +37,7 @@ import ghidra.util.HelpLocation;
  * It allows the user to specify the types of differences to determine 
  * and the address set to diff.
  */
-public class ExecuteDiffDialog extends DialogComponentProvider {
+public class ExecuteDiffDialog extends ReusableDialogComponentProvider {
 
 	public static final String DIFF_ACTION = "Diff";
 	private static final String TITLE = "Determine Program Differences";
@@ -52,6 +52,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 	private JCheckBox diffBookmarksCB;
 	private JCheckBox diffPropertiesCB;
 	private JCheckBox diffFunctionsCB;
+	private JCheckBox diffSourceMapCB;
 	private JButton selectAllButton = new JButton("Select All");
 	private JButton deselectAllButton = new JButton("Deselect All");
 	private JCheckBox limitToSelectionCB;
@@ -66,6 +67,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 	private boolean diffBookmarks;
 	private boolean diffProperties;
 	private boolean diffFunctions;
+	private boolean diffSourceMap;
 
 	private ProgramDiffFilter diffFilter;
 	private JPanel diffPanel;
@@ -108,9 +110,6 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 		addCancelButton();
 	}
 
-	/**
-	 * @see ghidra.util.bean.GhidraDialog#okCallback()
-	 */
 	@Override
 	protected void okCallback() {
 		if (!hasDiffSelection()) {
@@ -118,16 +117,14 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 			Toolkit.getDefaultToolkit().beep();
 			return;
 		}
-		for (int i = 0; i < listenerList.size(); i++) {
-			ActionListener listener = listenerList.get(i);
-			listener.actionPerformed(new ActionEvent(this, 0, DIFF_ACTION));
+
+		ActionEvent event = new ActionEvent(this, 0, DIFF_ACTION);
+		for (ActionListener listener : listenerList) {
+			listener.actionPerformed(event);
 		}
 		close();
 	}
 
-	/**
-	 * @see ghidra.util.bean.GhidraDialog#cancelCallback()
-	 */
 	@Override
 	protected void cancelCallback() {
 		close();
@@ -196,9 +193,8 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 	 */
 	private JPanel createDiffFilterPanel() {
 		JPanel checkBoxPanel = new JPanel();
-		checkBoxPanel.setToolTipText(
-			"Check the types of differences between the two " +
-				"programs that you want detected and highlighted.");
+		checkBoxPanel.setToolTipText("Check the types of differences between the two " +
+			"programs that you want detected and highlighted.");
 
 		createBytesCheckBox();
 		createLabelsCheckBox();
@@ -209,17 +205,19 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 		createBookmarksCheckBox();
 		createPropertiesCheckBox();
 		createFunctionsCheckBox();
+		createSourceMapCheckBox();
 
-		checkBoxPanel.setLayout(new GridLayout(3, 3, 5, 0));
-		checkBoxPanel.add(diffBytesCB);
-		checkBoxPanel.add(diffLabelsCB);
-		checkBoxPanel.add(diffCodeUnitsCB);
-		checkBoxPanel.add(diffReferencesCB);
-		checkBoxPanel.add(diffProgramContextCB);
-		checkBoxPanel.add(diffCommentsCB);
+		checkBoxPanel.setLayout(new GridLayout(2, 5, 5, 0));
 		checkBoxPanel.add(diffBookmarksCB);
-		checkBoxPanel.add(diffPropertiesCB);
+		checkBoxPanel.add(diffBytesCB);
+		checkBoxPanel.add(diffCodeUnitsCB);
+		checkBoxPanel.add(diffCommentsCB);
 		checkBoxPanel.add(diffFunctionsCB);
+		checkBoxPanel.add(diffLabelsCB);
+		checkBoxPanel.add(diffProgramContextCB);
+		checkBoxPanel.add(diffPropertiesCB);
+		checkBoxPanel.add(diffReferencesCB);
+		checkBoxPanel.add(diffSourceMapCB);
 
 		JPanel buttonPanel = new JPanel();
 		createSelectAllButton();
@@ -259,8 +257,8 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 	private void createCodeUnitsCheckBox() {
 		diffCodeUnitsCB = new GCheckBox("Code Units", diffCodeUnits);
 		diffCodeUnitsCB.setName("CodeUnitsDiffCB");
-		diffCodeUnitsCB.setToolTipText(
-			"Highlight the instruction, data, " + "and equate differences.");
+		diffCodeUnitsCB
+				.setToolTipText("Highlight the instruction, data, " + "and equate differences.");
 		diffCodeUnitsCB.addItemListener(event -> {
 			diffCodeUnits = (event.getStateChange() == ItemEvent.SELECTED);
 			diffFilter.setFilter(ProgramDiffFilter.CODE_UNIT_DIFFS, diffCodeUnits);
@@ -318,7 +316,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 		diffPropertiesCB = new GCheckBox("Properties", diffProperties);
 		diffPropertiesCB.setName("PropertiesDiffCB");
 		diffPropertiesCB.setToolTipText("Highlight user defined property differences. " +
-				"(for example, Format (space) differences)");
+			"(for example, Format (space) differences)");
 		diffPropertiesCB.addItemListener(event -> {
 			diffProperties = (event.getStateChange() == ItemEvent.SELECTED);
 			diffFilter.setFilter(ProgramDiffFilter.USER_DEFINED_DIFFS, diffProperties);
@@ -339,23 +337,24 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 		});
 	}
 
-	private void createSelectAllButton() {
-		selectAllButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				setSelectAll(true);
-			}
+	private void createSourceMapCheckBox() {
+		diffSourceMapCB = new GCheckBox("Source Map", diffSourceMap);
+		diffSourceMapCB.setName("SourceMapDiffCB");
+		diffSourceMapCB.setToolTipText("Highlight Source Map Differences");
+		diffSourceMapCB.addItemListener(event -> {
+			diffSourceMap = (event.getStateChange() == ItemEvent.SELECTED);
+			diffFilter.setFilter(ProgramDiffFilter.SOURCE_MAP_DIFFS, diffSourceMap);
+			clearStatusText();
 		});
+	}
+
+	private void createSelectAllButton() {
+		selectAllButton.addActionListener(e -> setSelectAll(true));
 		selectAllButton.setMnemonic('S');
 	}
 
 	private void createDeselectAllButton() {
-		deselectAllButton.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				setSelectAll(false);
-			}
-		});
+		deselectAllButton.addActionListener(e -> setSelectAll(false));
 		deselectAllButton.setMnemonic('D');
 	}
 
@@ -369,6 +368,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 		diffBookmarksCB.setSelected(selected);
 		diffPropertiesCB.setSelected(selected);
 		diffFunctionsCB.setSelected(selected);
+		diffSourceMapCB.setSelected(selected);
 	}
 
 	private void adjustDiffFilter() {
@@ -381,7 +381,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 		diffBookmarksCB.setSelected(diffBookmarks);
 		diffPropertiesCB.setSelected(diffProperties);
 		diffFunctionsCB.setSelected(diffFunctions);
-
+		diffSourceMapCB.setSelected(diffSourceMap);
 	}
 
 	void setPgmContextEnabled(boolean enable) {
@@ -417,6 +417,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 		diffBookmarks = diffFilter.getFilter(ProgramDiffFilter.BOOKMARK_DIFFS);
 		diffProperties = diffFilter.getFilter(ProgramDiffFilter.USER_DEFINED_DIFFS);
 		diffFunctions = diffFilter.getFilter(ProgramDiffFilter.FUNCTION_DIFFS);
+		diffSourceMap = diffFilter.getFilter(ProgramDiffFilter.SOURCE_MAP_DIFFS);
 		adjustDiffFilter();
 	}
 
@@ -484,7 +485,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 	 */
 	boolean hasDiffSelection() {
 		return (diffBytes || diffLabels || diffCodeUnits || diffProgramContext || diffReferences ||
-			diffComments || diffBookmarks || diffProperties || diffFunctions);
+			diffComments || diffBookmarks || diffProperties || diffFunctions || diffSourceMap);
 	}
 
 	/**
@@ -493,7 +494,7 @@ public class ExecuteDiffDialog extends DialogComponentProvider {
 	boolean isMarkingAllDiffs() {
 		return (diffBytes && diffLabels && diffCodeUnits &&
 			((!pgmContextEnabled) || diffProgramContext) && diffReferences && diffComments &&
-			diffBookmarks && diffProperties && diffFunctions);
+			diffBookmarks && diffProperties && diffFunctions && diffSourceMap);
 	}
 
 }

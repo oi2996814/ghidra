@@ -76,6 +76,12 @@ public class GFileImpl implements GFile {
 	public static GFileImpl fromPathString(GFileSystem fileSystem, GFile parent, String path,
 			FSRL fsrl, boolean isDirectory, long length) {
 		String[] split = path.split(FSUtilities.SEPARATOR);
+		if (split.length >= 3 && split[0].isEmpty() && split[1].isEmpty() && !split[2].isEmpty()) {
+			// The path was in UNC format, either //unc or \\unc.
+			// Put a unc prefix "//" back into the element that has the unc name.  The leading empty
+			// elements will be skipped when building the parentage.
+			split[2] = "//" + split[2];
+		}
 		for (int i = 0; i < split.length - 1; ++i) {
 			if (split[i].length() == 0) {
 				continue;
@@ -83,7 +89,8 @@ public class GFileImpl implements GFile {
 			parent = fromFilename(fileSystem, parent, split[i], true, -1, null);
 		}
 		if (fsrl == null) {
-			fsrl = getFSRLFromParent(fileSystem, parent, split[split.length - 1]);
+			String filename = split.length > 0 ? split[split.length - 1] : "/";
+			fsrl = getFSRLFromParent(fileSystem, parent, filename);
 		}
 		return new GFileImpl(fileSystem, parent, isDirectory, length, fsrl);
 	}

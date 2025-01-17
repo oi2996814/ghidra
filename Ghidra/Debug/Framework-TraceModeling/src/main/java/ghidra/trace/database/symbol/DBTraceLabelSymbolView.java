@@ -15,16 +15,14 @@
  */
 package ghidra.trace.database.symbol;
 
-import com.google.common.collect.Range;
-
 import ghidra.program.model.address.Address;
 import ghidra.program.model.symbol.*;
-import ghidra.trace.database.thread.DBTraceThread;
-import ghidra.trace.model.Trace.TraceSymbolChangeType;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.symbol.TraceLabelSymbolView;
 import ghidra.trace.model.symbol.TraceNamespaceSymbol;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.trace.util.TraceChangeRecord;
+import ghidra.trace.util.TraceEvents;
 import ghidra.util.LockHold;
 import ghidra.util.exception.InvalidInputException;
 
@@ -37,7 +35,7 @@ public class DBTraceLabelSymbolView
 	}
 
 	@Override
-	public DBTraceLabelSymbol add(Range<Long> lifespan, TraceThread thread, Address address,
+	public DBTraceLabelSymbol add(Lifespan lifespan, TraceThread thread, Address address,
 			String name, TraceNamespaceSymbol parent, SourceType source)
 			throws InvalidInputException, IllegalArgumentException {
 		// TODO: Allow frames other than 0? Don't allow threads at all?
@@ -46,18 +44,17 @@ public class DBTraceLabelSymbolView
 		}
 		DBTraceSymbolManager.assertValidName(name);
 		try (LockHold hold = LockHold.lock(manager.lock.writeLock())) {
-			DBTraceThread dbThread =
-				thread == null ? null : manager.trace.getThreadManager().assertIsMine(thread);
+			manager.trace.getThreadManager().assertIsMine(thread);
 			DBTraceNamespaceSymbol dbnsParent = manager.assertIsMine((Namespace) parent);
-			manager.assertValidThreadAddress(dbThread, address);
+			manager.assertValidThreadAddress(thread, address);
 			DBTraceLabelSymbol label = store.create();
-			label.set(lifespan, dbThread, address, name, dbnsParent, source);
-			manager.putID(lifespan, dbThread, address, label.getID());
+			label.set(lifespan, thread, address, name, dbnsParent, source);
+			manager.putID(lifespan, thread, address, label.getID());
 
 			cacheForAt.notifyNewEntry(lifespan, address, label);
 
 			manager.trace.setChanged(
-				new TraceChangeRecord<>(TraceSymbolChangeType.ADDED, label.getSpace(), label));
+				new TraceChangeRecord<>(TraceEvents.SYMBOL_ADDED, label.getSpace(), label));
 			return label;
 		}
 	}

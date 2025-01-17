@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,6 +23,7 @@ import docking.widgets.fieldpanel.internal.FieldBackgroundColorManager;
 import docking.widgets.fieldpanel.internal.PaintContext;
 import docking.widgets.fieldpanel.support.DefaultRowColLocation;
 import docking.widgets.fieldpanel.support.RowColLocation;
+import generic.theme.GThemeDefaults.Colors.Palette;
 
 /**
  * A Text field that is blank.
@@ -55,6 +56,7 @@ public class EmptyTextField implements Field {
 	/**
 	 * Returns true if the cursor is allowed past the last character.  This
 	 * field always returns false since there is no text.
+	 * @return true if the cursor is allowed past the last character
 	 */
 	public boolean isAllowCursorAtEnd() {
 		return false;
@@ -168,6 +170,7 @@ public class EmptyTextField implements Field {
 	 * @param color the new foreground color.
 	 */
 	public void setForeground(Color color) {
+		// cannot change foreground
 	}
 
 	/**
@@ -178,7 +181,7 @@ public class EmptyTextField implements Field {
 	 * was called.
 	 */
 	public Color getForeground() {
-		return Color.WHITE;
+		return Palette.NO_COLOR;
 	}
 
 	@Override

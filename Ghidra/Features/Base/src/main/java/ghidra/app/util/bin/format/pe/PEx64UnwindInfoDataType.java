@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,7 +34,7 @@ public class PEx64UnwindInfoDataType extends DynamicDataType {
 	private final static int UNWIND_OP_INFO_FIELD_LENGTH = 0x04;
 
 	private final static DataType BYTE = ByteDataType.dataType;
-	private final static DataType IBO32 = new ImageBaseOffset32DataType();
+	private final static DataType IBO32 = new IBO32DataType();
 
 	public PEx64UnwindInfoDataType() {
 		this(null);
@@ -164,7 +164,7 @@ public class PEx64UnwindInfoDataType extends DynamicDataType {
 
 	private static EnumDataType unwindInfoFlagsEnum;
 
-	private EnumDataType defineUnwindInfoFlags() {
+	private synchronized EnumDataType defineUnwindInfoFlags() {
 		if (unwindInfoFlagsEnum == null) {
 			unwindInfoFlagsEnum = new EnumDataType("UNW_FLAGS", 1);
 			unwindInfoFlagsEnum.add("UNW_FLAG_NHANDLER", PEx64UnwindInfo.UNW_FLAG_NHANDLER);

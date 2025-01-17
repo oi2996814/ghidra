@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,24 +15,23 @@
  */
 package docking.widgets.filter;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import javax.swing.Icon;
 
 import org.jdom.Element;
 
+import generic.theme.GIcon;
 import resources.MultiIcon;
-import resources.ResourceManager;
 import resources.icons.TranslateIcon;
 
 public class FilterOptions {
-	private static final Icon CONTAINS_ICON = ResourceManager.loadImage("images/page_code.png");
-	private static final Icon STARTS_WITH_ICON = ResourceManager.loadImage("images/page_go.png");
-	private static final Icon EXACT_MATCH_ICON = ResourceManager.loadImage("images/page_green.png");
-	private static final Icon REG_EX_ICON = ResourceManager.loadImage("images/page_excel.png");
-	private static final Icon NOT_ICON = ResourceManager.loadImage("images/bullet_delete.png");
+	private static final Icon CONTAINS_ICON = new GIcon("icon.filter.options.contains");
+	private static final Icon STARTS_WITH_ICON = new GIcon("icon.filter.options.starts.with");
+	private static final Icon EXACT_MATCH_ICON = new GIcon("icon.filter.options.exact");
+	private static final Icon REG_EX_ICON = new GIcon("icon.filter.options.regex");
+	private static final Icon NOT_ICON = new GIcon("icon.filter.options.not");
 
 	final static Map<Character, String> DELIMITER_NAME_MAP = new HashMap<>(20);
 
@@ -81,6 +80,7 @@ public class FilterOptions {
 
 	private final boolean caseSensitive;
 	private final boolean inverted;
+	private final boolean usePath;
 	private final TextFilterStrategy textFilterStrategy;
 	private final boolean allowGlobbing;
 	private final boolean multiTerm;
@@ -93,19 +93,19 @@ public class FilterOptions {
 
 	public FilterOptions(TextFilterStrategy textFilterStrategy, boolean allowGlobbing,
 			boolean caseSensitive, boolean inverted) {
-		this(textFilterStrategy, allowGlobbing, caseSensitive, inverted, false, DEFAULT_DELIMITER,
-			MultitermEvaluationMode.AND);
+		this(textFilterStrategy, allowGlobbing, caseSensitive, inverted, false, false,
+			DEFAULT_DELIMITER, MultitermEvaluationMode.AND);
 	}
 
 	public FilterOptions(TextFilterStrategy textFilterStrategy, boolean allowGlobbing,
 			boolean caseSensitive, boolean inverted, boolean multiTerm, char delimiterCharacter) {
-		this(textFilterStrategy, allowGlobbing, caseSensitive, inverted, multiTerm,
+		this(textFilterStrategy, allowGlobbing, caseSensitive, inverted, false, multiTerm,
 			delimiterCharacter, MultitermEvaluationMode.AND);
 	}
 
 	public FilterOptions(TextFilterStrategy textFilterStrategy, boolean allowGlobbing,
-			boolean caseSensitive, boolean inverted, boolean multiTerm, char delimiterCharacter,
-			MultitermEvaluationMode mode) {
+			boolean caseSensitive, boolean inverted, boolean usePath, boolean multiTerm,
+			char delimiterCharacter, MultitermEvaluationMode mode) {
 		if (textFilterStrategy == null) {
 			throw new NullPointerException("TextFilterStrategy Cannot be null");
 		}
@@ -119,6 +119,7 @@ public class FilterOptions {
 		this.allowGlobbing = allowGlobbing;
 		this.caseSensitive = caseSensitive;
 		this.inverted = inverted;
+		this.usePath = usePath;
 
 		this.multiTerm =
 			textFilterStrategy == TextFilterStrategy.REGULAR_EXPRESSION ? false : multiTerm;
@@ -134,6 +135,7 @@ public class FilterOptions {
 		boolean globbing = globValue == null ? true : Boolean.parseBoolean(globValue);
 		boolean caseSensitive = Boolean.parseBoolean(element.getAttributeValue("CASE_SENSITIVE"));
 		boolean inverted = Boolean.parseBoolean(element.getAttributeValue("INVERTED"));
+		boolean usePath = Boolean.parseBoolean(element.getAttributeValue("USE_PATH"));
 
 		boolean multiterm = Boolean.parseBoolean(element.getAttributeValue("MULTITERM"));
 		String delimiterCharacterStr = element.getAttributeValue("TERM_DELIMITER");
@@ -143,8 +145,8 @@ public class FilterOptions {
 
 		boolean andMode = Boolean.parseBoolean(element.getAttributeValue("AND_EVAL_MODE", "True"));
 
-		return new FilterOptions(textFilterStrategy, globbing, caseSensitive, inverted, multiterm,
-			delimiterCharacterStr.charAt(0),
+		return new FilterOptions(textFilterStrategy, globbing, caseSensitive, inverted, usePath,
+			multiterm, delimiterCharacterStr.charAt(0),
 			andMode ? MultitermEvaluationMode.AND : MultitermEvaluationMode.OR);
 	}
 
@@ -162,6 +164,7 @@ public class FilterOptions {
 		xmlElement.setAttribute("GLOBBING", Boolean.toString(allowGlobbing));
 		xmlElement.setAttribute("CASE_SENSITIVE", Boolean.toString(caseSensitive));
 		xmlElement.setAttribute("INVERTED", Boolean.toString(inverted));
+		xmlElement.setAttribute("USE_PATH", Boolean.toString(usePath));
 
 		xmlElement.setAttribute("MULTITERM", Boolean.toString(multiTerm));
 		xmlElement.setAttribute("TERM_DELIMITER", "" + delimitingCharacter);
@@ -182,6 +185,10 @@ public class FilterOptions {
 
 	public boolean isInverted() {
 		return inverted;
+	}
+
+	public boolean shouldUsePath() {
+		return usePath;
 	}
 
 	public TextFilterStrategy getTextFilterStrategy() {
@@ -325,8 +332,13 @@ public class FilterOptions {
 			char delim = getDelimitingCharacter();
 			String delimName = DELIMITER_NAME_MAP.get(delim);
 
-			buf.append("'").append(delim).append("'").append("&nbsp; <i>(").append(
-				delimName).append(")</i>");
+			buf.append("'")
+					.append(delim)
+					.append("'")
+					.append("&nbsp; <i>(")
+					.append(
+						delimName)
+					.append(")</i>");
 			buf.append("</td>");
 			buf.append("</tr>");
 		}
@@ -334,6 +346,30 @@ public class FilterOptions {
 		buf.append("</table>");
 
 		return buf.toString();
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(allowGlobbing, caseSensitive, delimitingCharacter, evalMode, inverted,
+			multiTerm, textFilterStrategy, usePath);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+		}
+		FilterOptions other = (FilterOptions) obj;
+		return allowGlobbing == other.allowGlobbing && caseSensitive == other.caseSensitive &&
+			delimitingCharacter == other.delimitingCharacter && evalMode == other.evalMode &&
+			inverted == other.inverted && multiTerm == other.multiTerm &&
+			textFilterStrategy == other.textFilterStrategy && usePath == other.usePath;
 	}
 
 }

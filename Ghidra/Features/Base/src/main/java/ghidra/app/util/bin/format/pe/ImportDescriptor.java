@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import ghidra.app.util.bin.*;
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
 import ghidra.program.model.data.*;
 import ghidra.util.DataConverter;
 import ghidra.util.exception.DuplicateNameException;
@@ -58,21 +57,18 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
 	private List<ThunkData> intList = new ArrayList<ThunkData>();
 	private List<ThunkData> iatList = new ArrayList<ThunkData>();
 
-    static ImportDescriptor createImportDescriptor(
-            FactoryBundledWithBinaryReader reader, int index)
-            throws IOException {
-        ImportDescriptor importDescriptor = (ImportDescriptor) reader.getFactory().create(ImportDescriptor.class);
-        importDescriptor.initImportDescriptor(reader, index);
-        return importDescriptor;
-    }
-
-    private void initImportDescriptor(FactoryBundledWithBinaryReader reader, int index) throws IOException {
-        characteristics    = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
-        originalFirstThunk = characteristics;
-        timeDateStamp      = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
-        forwarderChain     = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
-        name               = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
-        firstThunk         = reader.readInt(index); index += BinaryReader.SIZEOF_INT;
+	ImportDescriptor(BinaryReader reader, int index) throws IOException {
+		characteristics = reader.readInt(index);
+		index += BinaryReader.SIZEOF_INT;
+		originalFirstThunk = characteristics;
+		timeDateStamp = reader.readInt(index);
+		index += BinaryReader.SIZEOF_INT;
+		forwarderChain = reader.readInt(index);
+		index += BinaryReader.SIZEOF_INT;
+		name = reader.readInt(index);
+		index += BinaryReader.SIZEOF_INT;
+		firstThunk = reader.readInt(index);
+		index += BinaryReader.SIZEOF_INT;
     }
 
     /**
@@ -215,9 +211,7 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
 		return timeDateStamp != NOT_BOUND;
 	}
 
-    /**
-     * @see ghidra.app.util.bin.StructConverter#toDataType()
-     */
+	@Override
     public DataType toDataType() throws DuplicateNameException {
         UnionDataType union = new UnionDataType("union");
         union.add(DWORD, "Characteristics",    null);
@@ -234,9 +228,7 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
         return struct;
     }
 
-    /**
-     * @see ghidra.app.util.bin.ByteArrayConverter#toBytes(ghidra.util.DataConverter)
-     */
+	@Override
 	public byte [] toBytes(DataConverter dc) {
 		byte [] bytes = new byte[SIZEOF];
 
@@ -261,7 +253,7 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
 	}
 
 	/**
-	 * Sets the original first thunk to the specifed value. 
+	 * Sets the original first thunk to the specified value. 
 	 * @param i the new original first thunk value.
 	 * @see #getOriginalFirstThunk()
 	 */
@@ -270,7 +262,7 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
 	}
 
 	/**
-	 * Sets the time/date stamp to the specifed value. 
+	 * Sets the time/date stamp to the specified value. 
 	 * @param i the new time/date stamp value.
 	 * @see #getTimeDateStamp()
 	 */
@@ -279,7 +271,7 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
 	}
 
 	/**
-	 * Sets the forwarder to the specifed value. 
+	 * Sets the forwarder to the specified value. 
 	 * @param i the new forwarder value.
 	 * @see #getForwarderChain()
 	 */
@@ -288,7 +280,7 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
 	}
 
 	/**
-	 * Sets the name to the specifed value. 
+	 * Sets the name to the specified value. 
 	 * @param i the new name value.
 	 * @see #getName()
 	 */
@@ -297,7 +289,7 @@ public class ImportDescriptor implements StructConverter, ByteArrayConverter {
 	}
 
 	/**
-	 * Sets the first thunk to the specifed value. 
+	 * Sets the first thunk to the specified value. 
 	 * @param i the new first thunk value.
 	 * @see #getFirstThunk()
 	 */

@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,6 +27,7 @@ import org.apache.commons.collections4.bidimap.DualHashBidiMap;
 
 import edu.uci.ics.jung.visualization.decorators.EdgeShape;
 import edu.uci.ics.jung.visualization.renderers.Renderer;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import generic.util.image.ImageUtils;
 import ghidra.graph.*;
 import ghidra.graph.algo.GraphAlgorithmStatusListener;
@@ -86,7 +87,7 @@ public class TestGraphAlgorithmSteppingViewerPanel<V, E extends GEdge<V>> extend
 
 				BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 				Graphics2D g = (Graphics2D) image.getGraphics();
-				g.setColor(Color.WHITE);
+				g.setColor(Palette.WHITE);
 				g.fillRect(0, 0, w, h);
 
 				try {
@@ -313,13 +314,10 @@ public class TestGraphAlgorithmSteppingViewerPanel<V, E extends GEdge<V>> extend
 				GridLocationMap<AlgorithmTestSteppingVertex<V>, AlgorithmTestSteppingEdge<V>> grid,
 				int row, int col) {
 
-			int existing = grid.row(v);
-			if (existing > 0) {
-				return; // already processed
+			if (grid.containsVertex(v)) {
+				return;
 			}
-
-			grid.row(v, row);
-			grid.col(v, col);
+			grid.set(v, row, col);
 			int nextRow = row++;
 
 			Collection<AlgorithmTestSteppingEdge<V>> children = g.getOutEdges(v);

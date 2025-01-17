@@ -25,9 +25,9 @@ import javax.swing.text.html.HTMLEditorKit;
 
 import docking.widgets.OptionDialog;
 import docking.widgets.label.GLabel;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.GhidraOptions;
 import ghidra.app.services.ProgramManager;
-import ghidra.framework.model.DomainObject;
 import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.PluginTool;
@@ -90,8 +90,7 @@ class AnalyzeAllOpenProgramsTask extends Task {
 				return;  // no need to log this - it's a valid condition
 			}
 
-			AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(prototypeProgram);
-			if (!setOptions(prototypeProgram, mgr)) {
+			if (!setOptions(prototypeProgram)) {
 				return;
 			}
 
@@ -132,7 +131,7 @@ class AnalyzeAllOpenProgramsTask extends Task {
 				AutoAnalysisManager manager = AutoAnalysisManager.getAnalysisManager(program);
 				initializeAnalysisOptions(program, prototypeAnalysisOptions, manager);
 
-				GhidraProgramUtilities.setAnalyzedFlag(program, true);
+				GhidraProgramUtilities.markProgramAnalyzed(program);
 
 				analyzeStrategy.analyzeProgram(program, manager, monitor);
 			}
@@ -169,7 +168,7 @@ class AnalyzeAllOpenProgramsTask extends Task {
 		return true;
 	}
 
-	private boolean setOptions(final Program program, AutoAnalysisManager mgr) {
+	private boolean setOptions(final Program program) {
 		AtomicBoolean analyze = new AtomicBoolean();
 		int id = program.startTransaction("analysis");
 		try {
@@ -271,7 +270,7 @@ class AnalyzeAllOpenProgramsTask extends Task {
 
 		appendTableHeader(buffy);
 
-		String specialFontOpen = "<B><font color=\"green\">";
+		String specialFontOpen = "<B><font color=\"" + Palette.GREEN.toHexString() + "\">";
 		String specialFontClose = "</font></B>";
 
 		for (Program program : validList) {
@@ -363,13 +362,13 @@ class AnalyzeAllOpenProgramsTask extends Task {
 		}
 
 		@Override
-		public boolean applyTo(DomainObject obj, TaskMonitor monitor) {
+		public boolean applyTo(Program program, TaskMonitor monitor) {
 			monitor.addCancelledListener(bottomUpCancelledListener);
 
 			// note: this call has to be here, so our listener on the monitor is in place
 			manager.reAnalyzeAll(null);
 
-			boolean result = super.applyTo(obj, monitor);
+			boolean result = super.applyTo(program, monitor);
 			monitor.removeCancelledListener(bottomUpCancelledListener);
 			finishedLatch.countDown();
 			return result;

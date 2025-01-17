@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,9 @@
 package ghidra.app.plugin.core.decompile;
 
 import static org.junit.Assert.*;
+
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -28,13 +31,14 @@ import ghidra.app.plugin.core.codebrowser.CodeViewerProvider;
 import ghidra.app.plugin.core.gotoquery.GoToHelper;
 import ghidra.app.plugin.core.navigation.NavigationOptions;
 import ghidra.app.plugin.core.navigation.NextPrevAddressPlugin;
+import ghidra.app.services.GoToService;
+import ghidra.app.util.navigation.GoToServiceImpl;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.OperandFieldLocation;
 import ghidra.program.util.ProgramLocation;
 import ghidra.test.ClassicSampleX86ProgramBuilder;
-import mockit.*;
 
 public class DecompilerNavigationTest extends AbstractDecompilerTest {
 
@@ -47,6 +51,23 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 
 		CodeViewerProvider cbProvider = codeBrowser.getProvider();
 		tool.showComponentProvider(cbProvider, true);
+	}
+
+	private void installSpyGoToHelper() {
+		GoToHelper spyGoToHelper = new GoToHelper(tool) {
+
+			@Override
+			protected boolean goToExternalLinkage(Navigatable nav, ExternalLocation externalLoc,
+					boolean popupAllowed) {
+
+				goToExternalLinkageCalled = true;
+				return super.goToExternalLinkage(nav, externalLoc, popupAllowed);
+			}
+		};
+
+		GoToServiceImpl goToServiceImpl = (GoToServiceImpl) tool.getService(GoToService.class);
+		setInstanceField("helper", goToServiceImpl, spyGoToHelper);
+
 	}
 
 	@Override
@@ -69,10 +90,10 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 	public void testNavigation_ExternalEventDoesNotTriggerNavigation() {
 
 		//
-		// Test to make sure that external ProgramLocationEvent notifications to not trigger 
-		// the Decompiler to broadcast a new event.   Setup a tool with the Listing and 
+		// Test to make sure that external ProgramLocationEvent notifications to not trigger
+		// the Decompiler to broadcast a new event.   Setup a tool with the Listing and
 		// the Decompiler open.  Then, navigate in the Listing and verify the address does not
-		// move.  (This is somewhat subject to the Code Unit at the address in how the 
+		// move.  (This is somewhat subject to the Code Unit at the address in how the
 		// Decompiler itself responds to the incoming event.)
 		//
 
@@ -94,8 +115,7 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 	public void testFunctionNavigation_ExternalProgramFunction_OptionNavigateToExternal()
 			throws Exception {
 
-		// this call triggers jMockit to load our spy
-		new SpyGoToHelper();
+		installSpyGoToHelper();
 
 		tool.getOptions("Navigation")
 				.setEnum("External Navigation",
@@ -107,7 +127,7 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 		//
 
 		/*
-		 	01005a32 e8 be d2    CALL ghidra 
+		 	01005a32 e8 be d2    CALL ghidra
 		             ff ff
 		 */
 
@@ -130,8 +150,7 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 	public void testFunctionNavigation_ExternalProgramFunction_OptionNavigateToLinkage()
 			throws Exception {
 
-		// this call triggers jMockit to load our spy
-		new SpyGoToHelper();
+		installSpyGoToHelper();
 
 		tool.getOptions("Navigation")
 				.setEnum("External Navigation",
@@ -143,7 +162,7 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 		//
 
 		/*
-		 	01005a32 e8 be d2    CALL ghidra 
+		 	01005a32 e8 be d2    CALL ghidra
 		             ff ff
 		 */
 
@@ -178,15 +197,13 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 	}
 
 	@Test
-	public void testFunctionNavigation_WithAViewThatCachesTheLastValidFunction()
-			throws Exception {
+	public void testFunctionNavigation_WithAViewThatCachesTheLastValidFunction() throws Exception {
 
 		//
-		// This is testing the case where the user starts on a function foo().  Ancillary windows
-		// will display tool, such as a decompiled view.   Now, if the user clicks to a 
-		// non-function location, such as data, the ancillary window may still show foo(), even 
+		// This is testing the case where the user starts on a function foo().  When the user clicks
+		// away to a non-function location, such as data, the  window may still show foo(), even
 		// though the user is no longer in foo.  At this point, if the user wishes to go to the
-		// previous function, then from the ancillary window's perspective, it is the function 
+		// previous function, then from the ancillary window's perspective, it is the function
 		// that came before foo().
 		//
 
@@ -197,14 +214,15 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 		goTo(f1);
 		goTo(f2);
 		goTo(nonFunctionAddress);
+		waitForDecompiler();
 
 		String title = provider.getTitle();
-		assertTrue("Decompiler did not retain last function visited", title.contains("sscanf"));
+		assertTrue("Decompiler did not retain last function visited. " +
+			"Expected sscanf, but was '%s'".formatted(title), title.contains("sscanf"));
 
-		provider.requestFocus();
-		waitForSwing();
+		focusDecompiler();
 
-		// 
+		//
 		// The Decompiler is focused, showing 'entry'.  Going back while it is focused should go
 		// to the function before 'entry', which is 'ghidra'.
 		//
@@ -212,12 +230,35 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 		assertCurrentAddress(f1);
 	}
 
+	@Override
+	public void assertCurrentAddress(Address expected) {
+		codeBrowser.updateNow();
+		waitForSwing();
+
+		BooleanSupplier success = () -> {
+			ProgramLocation loc = codeBrowser.getCurrentLocation();
+			Address actual = loc.getAddress();
+			return expected.equals(actual);
+		};
+
+		Supplier<String> failureMessage =
+			() -> "Listing is not at the expected address.  Current location: " +
+				codeBrowser.getCurrentLocation();
+
+		waitForCondition(success, failureMessage);
+	}
+
+	private void focusDecompiler() {
+		runSwing(() -> provider.requestFocus());
+		waitForSwing();
+	}
+
 	private void previousFunction() {
 		NextPrevAddressPlugin plugin = env.getPlugin(NextPrevAddressPlugin.class);
 		DockingAction previousFunctionAction =
 			(DockingAction) getInstanceField("previousFunctionAction", plugin);
 
-		ActionContext context = provider.getActionContext(null);
+		ActionContext context = runSwing(() -> provider.getActionContext(null));
 		assertTrue(previousFunctionAction.isEnabledForContext(context));
 		performAction(previousFunctionAction, context, true);
 		waitForSwing();
@@ -226,18 +267,6 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 	private void assertListingAddress(Address expected) {
 		waitForCondition(() -> expected.equals(codeBrowser.getCurrentLocation().getAddress()),
 			"The Listing is not at the expected address");
-	}
-
-	@Override
-	public void assertCurrentAddress(Address expected) {
-		codeBrowser.updateNow();
-		waitForSwing();
-
-		waitForCondition(() -> {
-			ProgramLocation loc = codeBrowser.getCurrentLocation();
-			Address actual = loc.getAddress();
-			return expected.equals(actual);
-		}, "Listing is not at the expected address");
 	}
 
 	private void assertExternalNavigationPerformed() {
@@ -254,9 +283,7 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 
 	private void createThunkToExternal(String addressString) throws Exception {
 
-		int txId = program.startTransaction("Set External Location");
-		try {
-
+		tx(program, () -> {
 			program.getExternalManager().setExternalPath("ADVAPI32.dll", "/FILE1", true);
 
 			Address address = addr(addressString);
@@ -274,23 +301,6 @@ public class DecompilerNavigationTest extends AbstractDecompilerTest {
 
 			Function function = program.getFunctionManager().getFunctionAt(addr(addressString));
 			function.setThunkedFunction(externalLocation.getFunction());
-		}
-		finally {
-			program.endTransaction(txId, true);
-		}
-
-		program.flushEvents();
-		waitForSwing();
-	}
-
-	public class SpyGoToHelper extends MockUp<GoToHelper> {
-
-		@Mock
-		private boolean goToExternalLinkage(Invocation invocation, Navigatable nav,
-				ExternalLocation externalLoc, boolean popupAllowed) {
-
-			goToExternalLinkageCalled = true;
-			return invocation.proceed(nav, externalLoc, popupAllowed);
-		}
+		});
 	}
 }

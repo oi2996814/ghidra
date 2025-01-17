@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,20 +15,19 @@
  */
 package docking.options.editor;
 
-import java.awt.Color;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
 import javax.swing.tree.TreePath;
 
-import docking.DialogComponentProvider;
+import docking.ReusableDialogComponentProvider;
 import docking.widgets.OptionDialog;
 import ghidra.framework.options.Options;
 
 /**
  * Dialog for editing options within a tool.
  */
-public class OptionsDialog extends DialogComponentProvider {
+public class OptionsDialog extends ReusableDialogComponentProvider {
 	private OptionsPanel panel;
 	private boolean hasChanges;
 
@@ -36,7 +35,7 @@ public class OptionsDialog extends DialogComponentProvider {
 
 	/**
 	 * Construct a new OptionsDialog.
-	 * 
+	 *
 	 * @param title dialog title
 	 * @param rootNodeName name to display for the root node in the tree
 	 * @param options editable options
@@ -49,13 +48,12 @@ public class OptionsDialog extends DialogComponentProvider {
 
 	public OptionsDialog(String title, String rootNodeName, Options[] options,
 			OptionsEditorListener listener, boolean showRestoreDefaultsButton) {
-		super("OptionsDialog.Foofoo", true, false, true, false);
+		super("Options Dialog", true, false, true, false);
 		this.listener = listener;
 		panel = new OptionsPanel(rootNodeName, options, showRestoreDefaultsButton,
 			new OptionsPropertyChangeListener());
 
 		setTitle(title);
-		setBackground(Color.lightGray);
 
 		addWorkPanel(panel);
 		addOKButton();
@@ -67,7 +65,9 @@ public class OptionsDialog extends DialogComponentProvider {
 		setFocusComponent(panel.getFocusComponent());
 	}
 
+	@Override
 	public void dispose() {
+		super.dispose();
 		panel.dispose();
 	}
 
@@ -96,7 +96,9 @@ public class OptionsDialog extends DialogComponentProvider {
 				return;
 			}
 			if (result == OptionDialog.YES_OPTION) {
-				applyChanges();
+				if (!applyChanges()) {
+					return;
+				}
 			}
 		}
 		close();
@@ -143,7 +145,7 @@ public class OptionsDialog extends DialogComponentProvider {
 
 //=========================================================
 // Inner Classes
-//=========================================================	
+//=========================================================
 
 	class OptionsPropertyChangeListener implements PropertyChangeListener {
 		@Override

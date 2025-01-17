@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -33,6 +33,7 @@ import docking.widgets.EventTrigger;
 import docking.widgets.fieldpanel.FieldPanel;
 import docking.widgets.fieldpanel.support.FieldLocation;
 import docking.widgets.fieldpanel.support.FieldSelection;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.cmd.data.CreateStructureCmd;
 import ghidra.app.events.ProgramActivatedPluginEvent;
 import ghidra.app.events.ProgramSelectionPluginEvent;
@@ -342,13 +343,11 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 
 		Program program2 = loadSecondProgram();
 
-		Color startColor = Color.PINK;
+		Color startColor = Palette.PINK;
 		MarkerSet markersP1 = markerService.createPointMarker("Awesome Markers", "Description",
-			program, 0, true, true,
-			true, startColor, null, true);
+			program, 0, true, true, true, startColor, null, true);
 		MarkerSet markersP2 = markerService.createPointMarker("Awesome Markers", "Description",
-			program2, 0, true, true,
-			true, startColor, null, true);
+			program2, 0, true, true, true, startColor, null, true);
 
 		Address addressP1 = addr(program, "0x1001000");
 		Address addressP2 = addr(program2, "0x1001004");
@@ -358,8 +357,8 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 		assertMarkerColor(program, addressP1, startColor);
 		assertMarkerColor(program2, addressP2, startColor);
 
-		Color c1 = Color.ORANGE;
-		Color c2 = Color.BLUE;
+		Color c1 = Palette.ORANGE;
+		Color c2 = Palette.BLUE;
 
 		setMarkerColor(markersP1, c1);
 		setMarkerColor(markersP2, c2);
@@ -367,8 +366,8 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 		assertMarkerColor(program, addressP1, c1);
 		assertMarkerColor(program2, addressP2, c2);
 
-		Color c3 = Color.RED;
-		Color c4 = Color.GREEN;
+		Color c3 = Palette.RED;
+		Color c4 = Palette.GREEN;
 
 		// change markers for current program
 		setMarkerColor(markersP1, c3);
@@ -422,7 +421,7 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 			return markerService.getBackgroundColor(p, address);
 		});
 
-		assertEquals("Marker color not correct", c, actual);
+		assertEquals("Marker color not correct", c.getRGB(), actual.getRGB());
 	}
 
 	private void switchToProgram(Program p) {
@@ -474,8 +473,8 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 
 		setSelection(fp, sel);
 
-		DockingActionIf a = getAction(getPlugin(tool, SetHighlightPlugin.class),
-			"Set Highlight From Selection");
+		DockingActionIf a =
+			getAction(getPlugin(tool, SetHighlightPlugin.class), "Set Highlight From Selection");
 		performAction(a, cb.getProvider(), true);
 
 		clearSelection(p);
@@ -483,8 +482,7 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 
 	private void clearSelection(Program p) {
 		ProgramSelection emptySelection = new ProgramSelection(p.getAddressFactory());
-		tool.firePluginEvent(
-			new ProgramSelectionPluginEvent("Test", emptySelection, p));
+		tool.firePluginEvent(new ProgramSelectionPluginEvent("Test", emptySelection, p));
 	}
 
 	private int getCursorOffset() {
@@ -493,10 +491,7 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private void setSelection(FieldPanel fp, FieldSelection sel) {
-		fp.setSelection(sel);
-		Class<?>[] argClasses = new Class<?>[] { EventTrigger.class };
-		Object[] args = new Object[] { EventTrigger.GUI_ACTION };
-		runSwing(() -> invokeInstanceMethod("notifySelectionChanged", fp, argClasses, args));
+		runSwing(() -> fp.setSelection(sel, EventTrigger.GUI_ACTION));
 	}
 
 	private AddressSet getAddresses(MarkerSet ms) {
@@ -516,8 +511,8 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 
 	private Program loadSecondProgram() throws Exception {
 
-		ClassicSampleX86ProgramBuilder builder = new ClassicSampleX86ProgramBuilder(
-			"Second Sample Program", true);
+		ClassicSampleX86ProgramBuilder builder =
+			new ClassicSampleX86ProgramBuilder("Second Sample Program", true);
 		builder.setBytes("0x010032d7",
 			"53 56 8b 74 24 18 33 db 8d 04 b6 c1 e0 04 66 39 98 60 8f 00 01", true);
 
@@ -545,7 +540,7 @@ public class MarkerTest extends AbstractGhidraHeadedIntegrationTest {
 		turnOffOption("Equates", cd);
 		turnOffOption("Functions", cd);
 		turnOffOption("Registers", cd);
-		turnOffOption("Code", cd);
+		turnOffOption("Instructions", cd);
 		turnOffOption("Symbols", cd);
 
 		runSwing(() -> cd.okCallback());

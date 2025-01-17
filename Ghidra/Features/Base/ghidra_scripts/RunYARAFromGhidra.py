@@ -24,6 +24,7 @@
 # generate the original bytes of the imported file and asks the user to provide a filename to store the bytes.  YARA then runs on that file.
 
 #@category Memory.YARA
+#@runtime Jython
 
 import os.path
 import sys
@@ -41,7 +42,9 @@ from os.path import expanduser
 
 def getYaraRulePath():
   fileChooser = GhidraFileChooser(None);
-  fileChooser.addFileFilter(ExtensionFileFilter.forExtensions("YARA files", "yar"));
+  fileChooser.addFileFilter(ExtensionFileFilter.forExtensions("YARA files", "yara"));
+  fileChooser.addFileFilter(ExtensionFileFilter.forExtensions("YARA files", "yar")); 
+  fileChooser.setCurrentDirectory(None);
   homeDirectory = File(expanduser("~"));
   fileChooser.setCurrentDirectory(homeDirectory);
   fileChooser.setFileSelectionMode(GhidraFileChooserMode.FILES_ONLY);

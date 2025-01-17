@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,10 +15,9 @@
  */
 package ghidra.app.plugin.core.compositeeditor;
 
-import static org.junit.Assert.*;
-
 import javax.swing.JTextField;
 
+import org.junit.After;
 import org.junit.Assert;
 
 import ghidra.program.model.data.*;
@@ -30,6 +29,8 @@ public abstract class AbstractStructureEditorTest extends AbstractEditorTest {
 
 	// Editor Actions
 	ApplyAction applyAction;
+	UndoChangeAction undoAction;
+	RedoChangeAction redoAction;
 	ArrayAction arrayAction;
 	ClearAction clearAction;
 	CreateInternalStructureAction createInternalStructureAction;
@@ -47,48 +48,54 @@ public abstract class AbstractStructureEditorTest extends AbstractEditorTest {
 	InsertUndefinedAction insertUndefinedAction;
 	HexNumbersAction hexNumbersAction;
 
+	@Override
+	@After
+	public void tearDown() throws Exception {
+		clearActions();
+		structureModel = null;
+		super.tearDown();
+	}
+
 	StructureEditorModel getModel() {
-		return (StructureEditorModel) model;
+		return structureModel;
+	}
+
+	protected void init(Structure dt, final Category cat) {
+		init(dt, cat, false);
 	}
 
 	protected void init(Structure dt, final Category cat, final boolean showInHex) {
 
-		assertEquals("Category path mismatch", dt.getCategoryPath(), cat.getCategoryPath());
+		DataTypeManager dataTypeManager = cat.getDataTypeManager();
+		if (dt.getDataTypeManager() != dataTypeManager) {
+			dt = dt.clone(dataTypeManager);
+		}
 
-		boolean commit = true;
-		startTransaction("Structure Editor Test Initialization");
-		try {
-			DataTypeManager dataTypeManager = cat.getDataTypeManager();
-			if (dt.getDataTypeManager() != dataTypeManager) {
-				dt = dt.clone(dataTypeManager);
+		CategoryPath categoryPath = cat.getCategoryPath();
+		if (!dt.getCategoryPath().equals(categoryPath)) {
+			// dt may or may not be a DataTypeDB but create transaction to be safe
+			int dtmTxId =
+				dataTypeManager.startTransaction("Modify Datatype Category: " + dt.getName());
+			try {
+				dt.setCategoryPath(categoryPath);
 			}
-			CategoryPath categoryPath = cat.getCategoryPath();
-			if (!dt.getCategoryPath().equals(categoryPath)) {
-				try {
-					dt.setCategoryPath(categoryPath);
-				}
-				catch (DuplicateNameException e) {
-					commit = false;
-					Assert.fail(e.getMessage());
-				}
+			catch (DuplicateNameException e) {
+				Assert.fail(e.getMessage());
+			}
+			finally {
+				dataTypeManager.endTransaction(dtmTxId, true);
 			}
 		}
-		finally {
-			endTransaction(commit);
-		}
+
 		final Structure structDt = dt;
 		runSwing(() -> {
 			installProvider(new StructureEditorProvider(plugin, structDt, showInHex));
 			model = provider.getModel();
 		});
 		waitForSwing();
+
 		getActions();
 		structureModel = (StructureEditorModel) model;
-	}
-
-	protected void cleanup() {
-		clearActions();
-		runSwing(() -> provider.dispose());
 	}
 
 	void clearActions() {
@@ -96,6 +103,8 @@ public abstract class AbstractStructureEditorTest extends AbstractEditorTest {
 		favorites.clear();
 		cycles.clear();
 		applyAction = null;
+		undoAction = null;
+		redoAction = null;
 		arrayAction = null;
 		clearAction = null;
 		createInternalStructureAction = null;
@@ -125,6 +134,12 @@ public abstract class AbstractStructureEditorTest extends AbstractEditorTest {
 			}
 			else if (action instanceof ApplyAction) {
 				applyAction = (ApplyAction) action;
+			}
+			else if (action instanceof UndoChangeAction) {
+				undoAction = (UndoChangeAction) action;
+			}
+			else if (action instanceof RedoChangeAction) {
+				redoAction = (RedoChangeAction) action;
 			}
 			else if (action instanceof ArrayAction) {
 				arrayAction = (ArrayAction) action;

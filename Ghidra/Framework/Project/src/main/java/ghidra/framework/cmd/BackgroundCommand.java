@@ -16,23 +16,21 @@
 package ghidra.framework.cmd;
 
 import ghidra.framework.model.DomainObject;
+import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 
 /**
- * Abstract command that will be run in a thread (in the background)
- * other than the AWT(GUI) thread.  Use this to apply a long running
- * command that is interruptable.
+ * Abstract command that will be run in a thread (in the background) other than the AWT(GUI)
+ * thread.  Use this to apply a long running command that is cancellable.
  * 
- * The monitor allows the command to display status information as it
- * executes.
+ * <p>The monitor allows the command to display status information as it executes.
  * 
- * This allows commands to make changes in the background so that the
- * GUI is not frozen and the user can still interact with the GUI.
+ * <p>This allows commands to make changes in the background so that the GUI is not frozen and the
+ * user can still interact with the GUI.
  * 
- * 
+ * @param <T> {@link DomainObject} implementation interface
  */
-public abstract class BackgroundCommand implements Command {
+public abstract class BackgroundCommand<T extends DomainObject> implements Command<T> {
 
 	private String name;
 	private boolean hasProgress;
@@ -51,25 +49,20 @@ public abstract class BackgroundCommand implements Command {
 		this.isModal = isModal;
 	}
 
-	/*
-	 * @see ghidra.framework.cmd.Command#applyTo(ghidra.framework.model.DomainObject)
-	 */
 	@Override
-	public final boolean applyTo(DomainObject obj) {
-		return applyTo(obj, TaskMonitorAdapter.DUMMY_MONITOR);
+	public final boolean applyTo(T obj) {
+		return applyTo(obj, TaskMonitor.DUMMY);
 	}
 
 	/**
-	 * Method called when this command is to apply changes to the
-	 * given domain object.  A monitor is provided to display status
-	 * information about the command as it executes in the background.
+	 * Method called when this command is to apply changes to the given domain object.  A monitor
+	 * is provided to display status information about the command as it executes in the background.
 	 * 
 	 * @param obj domain object that will be affected by the command
 	 * @param monitor monitor to show progress of the command
-	 * 
 	 * @return true if the command applied successfully
 	 */
-	public abstract boolean applyTo(DomainObject obj, TaskMonitor monitor);
+	public abstract boolean applyTo(T obj, TaskMonitor monitor);
 
 // TODO: This should really throw CancelledException when canceled
 
@@ -135,5 +128,9 @@ public abstract class BackgroundCommand implements Command {
 	@Override
 	public String toString() {
 		return getName();
+	}
+
+	public void run(PluginTool tool, T obj) {
+		tool.executeBackgroundCommand(this, obj);
 	}
 }

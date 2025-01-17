@@ -64,13 +64,22 @@ public class TestDummyProjectData implements ProjectData {
 	}
 
 	@Override
-	public DomainFile getFileByID(String fileID) {
+	public List<DomainFile> findCheckedOutFiles(TaskMonitor monitor)
+			throws IOException, CancelledException {
 		// stub
-		return null;
+		return List.of();
 	}
 
 	@Override
-	public URL getSharedFileURL(String path) {
+	public boolean hasInvalidCheckouts(List<DomainFile> checkoutList,
+			RepositoryAdapter newRepository, TaskMonitor monitor)
+			throws IOException, CancelledException {
+		// stub
+		return false;
+	}
+
+	@Override
+	public DomainFile getFileByID(String fileID) {
 		// stub
 		return null;
 	}
@@ -88,6 +97,18 @@ public class TestDummyProjectData implements ProjectData {
 	}
 
 	@Override
+	public URL getSharedProjectURL() {
+		// stub
+		return null;
+	}
+
+	@Override
+	public URL getLocalProjectURL() {
+		// stub
+		return null;
+	}
+
+	@Override
 	public void addDomainFolderChangeListener(DomainFolderChangeListener listener) {
 		// stub
 	}
@@ -98,7 +119,7 @@ public class TestDummyProjectData implements ProjectData {
 	}
 
 	@Override
-	public void refresh(boolean force) throws IOException {
+	public void refresh(boolean force) {
 		// stub
 	}
 
@@ -121,8 +142,8 @@ public class TestDummyProjectData implements ProjectData {
 	}
 
 	@Override
-	public void updateRepositoryInfo(RepositoryAdapter repository, TaskMonitor monitor)
-			throws IOException, CancelledException {
+	public void updateRepositoryInfo(RepositoryAdapter repository, boolean force,
+			TaskMonitor monitor) throws IOException, CancelledException {
 		// stub
 	}
 

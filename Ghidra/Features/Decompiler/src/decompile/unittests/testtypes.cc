@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,8 @@
 #include "grammar.hh"
 #include "test.hh"
 #include <iostream>
+
+namespace ghidra {
 
 static Architecture *glb;
 static TypeFactory *types;
@@ -31,7 +33,7 @@ public:
   static void build(void);
 };
 
-TypeTestEnvironment theEnviron;
+static TypeTestEnvironment theEnviron;
 
 TypeTestEnvironment::TypeTestEnvironment(void)
 
@@ -97,6 +99,23 @@ bool castPrinted(OpCode opc,Datatype *t1,Datatype *t2) {
     dummyFunc->newUniqueOut(1, op);
   }
   return (inst->getInputCast(op, 0, strategy) != (Datatype *)0);
+}
+
+bool longPrinted(OpCode opc,Datatype *t1,uintb val)
+
+{
+  PcodeOp *op;
+  Address addr(glb->getDefaultCodeSpace(),0x1000);
+  op = dummyFunc->newOp(2, addr);
+  Datatype *sa = glb->types->getBase(4,TYPE_INT);
+  Varnode *vn1 = dummyFunc->newConstant(t1->getSize(), val);
+  vn1->updateType(t1, false, true);
+  Varnode *vn2 = dummyFunc->newUnique(sa->getSize(), sa);
+  dummyFunc->opSetOpcode(op, opc);
+  dummyFunc->opSetInput(op, vn1, 0);
+  dummyFunc->opSetInput(op, vn2, 1);
+  dummyFunc->newUniqueOut(vn1->getSize(), op);
+  return glb->print->getCastStrategy()->markExplicitLongSize(op, 0);
 }
 
 TEST(cast_basic) {
@@ -181,3 +200,64 @@ TEST(type_ordering) {
   ASSERT(parse("int4 *")->compare(*parse("void *"),10) < 0);
   ASSERT(parse("int2 *")->compare(*parse("xunknown2 *"),10) < 0);
 }
+
+TEST(cast_integertoken) {
+  TypeTestEnvironment::build();
+  ASSERT(longPrinted(CPUI_INT_LEFT,parse("int8"),10));
+  ASSERT(!longPrinted(CPUI_INT_LEFT,parse("int8"),0x100000000));
+  ASSERT(longPrinted(CPUI_INT_SRIGHT,parse("int8"),-3));
+  ASSERT(!longPrinted(CPUI_INT_SRIGHT,parse("int8"),0xffffffff7fffffff));
+  ASSERT(longPrinted(CPUI_INT_SRIGHT,parse("int8"),0xffffffff80000000));
+  ASSERT(longPrinted(CPUI_INT_RIGHT,parse("uint8"),0xffffffff));
+  ASSERT(!longPrinted(CPUI_INT_RIGHT,parse("uint8"),0x100000000));
+}
+
+TEST(enum_matching) {
+  TypeTestEnvironment::build();
+  TypeEnum *enum3 = (TypeEnum *)parse("enum enum3 { ZERO=0, ONE=1, TWO=2, FOUR=4, EIGHT=8 }");
+  TypeEnum::Representation rep;
+  enum3->getMatches(5, rep);
+  ASSERT(rep.matchname.size() == 2);
+  ASSERT(rep.matchname[0] == "FOUR");
+  ASSERT(rep.matchname[1] == "ONE");
+  ASSERT(!rep.complement);
+  rep.matchname.clear();
+  enum3->getMatches(0xfffffffffffffff7,rep);
+  ASSERT(rep.matchname.size() == 1);
+  ASSERT(rep.matchname[0] == "EIGHT");
+  ASSERT(rep.complement);
+  rep.matchname.clear();
+  rep.complement = false;
+  enum3->getMatches(0,rep);
+  ASSERT(rep.matchname.size() == 1);
+  ASSERT(rep.matchname[0] == "ZERO");
+  ASSERT(!rep.complement);
+  rep.matchname.clear();
+  enum3->getMatches(0x10, rep);
+  ASSERT(rep.matchname.size() == 0);
+  ASSERT(!rep.complement);
+}
+
+TEST(enum_matching2) {
+  TypeTestEnvironment::build();
+  TypeEnum *enum4 = (TypeEnum *)parse("enum enum4 { ZERO=0, ONE=1, TWO=2, FOUR=4, SIX=6, EIGHT=8, ELEVEN=11 }");
+  TypeEnum::Representation rep;
+  enum4->getMatches(12,rep);
+  ASSERT(rep.matchname.size()==2);
+  ASSERT(rep.matchname[0] == "EIGHT");
+  ASSERT(rep.matchname[1] == "FOUR");
+  ASSERT(!rep.complement);
+  rep.matchname.clear();
+  enum4->getMatches(7,rep);
+  ASSERT(rep.matchname.size()==2);
+  ASSERT(rep.matchname[0] == "SIX");
+  ASSERT(rep.matchname[1] == "ONE");
+  ASSERT(!rep.complement);
+  rep.matchname.clear();
+  enum4->getMatches(11,rep);
+  ASSERT(rep.matchname.size()==1);
+  ASSERT(rep.matchname[0] == "ELEVEN");
+  ASSERT(!rep.complement);
+}
+
+} // End namespace ghidra

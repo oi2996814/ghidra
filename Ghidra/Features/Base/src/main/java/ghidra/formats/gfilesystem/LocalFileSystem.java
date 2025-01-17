@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,11 +18,10 @@ package ghidra.formats.gfilesystem;
 import static ghidra.formats.gfilesystem.fileinfo.FileAttributeType.*;
 
 import java.io.*;
-import java.nio.file.*;
+import java.nio.file.AccessMode;
 import java.util.*;
 
 import org.apache.commons.collections4.map.ReferenceMap;
-import org.apache.commons.io.FilenameUtils;
 
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.FileByteProvider;
@@ -30,6 +29,8 @@ import ghidra.formats.gfilesystem.annotations.FileSystemInfo;
 import ghidra.formats.gfilesystem.factory.GFileSystemFactory;
 import ghidra.formats.gfilesystem.factory.GFileSystemFactoryIgnore;
 import ghidra.formats.gfilesystem.fileinfo.*;
+import ghidra.framework.OperatingSystem;
+import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
@@ -55,14 +56,17 @@ public class LocalFileSystem implements GFileSystem, GFileHashProvider {
 		return new LocalFileSystem(FSRLRoot.makeRoot(FSTYPE));
 	}
 
-	private final List<GFile> emptyDir = List.of();
 	private final FSRLRoot fsFSRL;
+	private final GFile rootDir;
 	private final FileSystemRefManager refManager = new FileSystemRefManager(this);
 	private final ReferenceMap<FileFingerprintRec, String> fileFingerprintToMD5Map =
 		new ReferenceMap<>();
+	private final boolean needsListRoots =
+		OperatingSystem.CURRENT_OPERATING_SYSTEM == OperatingSystem.WINDOWS;
 
 	private LocalFileSystem(FSRLRoot fsrl) {
 		this.fsFSRL = fsrl;
+		this.rootDir = GFileImpl.fromFSRL(this, null, fsFSRL.withPath("/"), true, -1);
 	}
 
 	boolean isSameFS(FSRL fsrl) {
@@ -115,13 +119,14 @@ public class LocalFileSystem implements GFileSystem, GFileHashProvider {
 
 	/**
 	 * Converts a {@link File} into a {@link FSRL}.
+	 * <p>
+	 * NOTE: The given {@link File}'s absolute path will be used.
 	 * 
-	 * @param f {@link File}
-	 * @return {@link FSRL}
+	 * @param f The {@link File} to convert to an {@link FSRL}
+	 * @return The {@link FSRL}
 	 */
 	public FSRL getLocalFSRL(File f) {
-		return fsFSRL
-				.withPath(FSUtilities.appendPath("/", FilenameUtils.separatorsToUnix(f.getPath())));
+		return fsFSRL.withPath(FSUtilities.normalizeNativePath(f.getAbsolutePath()));
 	}
 
 	@Override
@@ -142,28 +147,30 @@ public class LocalFileSystem implements GFileSystem, GFileHashProvider {
 	@Override
 	public List<GFile> getListing(GFile directory) {
 		List<GFile> results = new ArrayList<>();
+		directory = Objects.requireNonNullElse(directory, rootDir);
 
-		if (directory == null) {
+		if (directory.equals(rootDir) && needsListRoots) {
 			for (File f : File.listRoots()) {
-				results.add(GFileImpl.fromFSRL(this, null, fsFSRL.withPath(f.getName()),
-					f.isDirectory(), -1));
+				FSRL rootElemFSRL = fsFSRL.withPath(FSUtilities.normalizeNativePath(f.getName()));
+				results.add(GFileImpl.fromFSRL(this, null, rootElemFSRL, f.isDirectory(), -1));
 			}
 		}
 		else {
 			File localDir = new File(directory.getPath());
-			if (!localDir.isDirectory() || Files.isSymbolicLink(localDir.toPath())) {
-				return emptyDir;
+			if (!localDir.isDirectory() || FSUtilities.isSymlink(localDir)) {
+				return List.of();
 			}
 
 			File[] files = localDir.listFiles();
 			if (files == null) {
-				return emptyDir;
+				return List.of();
 			}
 
 			for (File f : files) {
-				if (f.isFile() || f.isDirectory()) {
-					results.add(GFileImpl.fromFSRL(this, directory,
-						directory.getFSRL().appendPath(f.getName()), f.isDirectory(), f.length()));
+				if (f.isFile() || f.isDirectory() || FSUtilities.isSymlink(f)) {
+					FSRL newFileFSRL = directory.getFSRL().appendPath(f.getName());
+					results.add(GFileImpl.fromFSRL(this, directory, newFileFSRL, f.isDirectory(),
+						f.length()));
 				}
 			}
 		}
@@ -184,36 +191,14 @@ public class LocalFileSystem implements GFileSystem, GFileHashProvider {
 	 * @return {@link FileAttributes} instance
 	 */
 	public FileAttributes getFileAttributes(File f) {
-		Path p = f.toPath();
-		FileType fileType = fileToFileType(p);
-		Path symLinkDest = null;
-		try {
-			symLinkDest = fileType == FileType.SYMBOLIC_LINK ? Files.readSymbolicLink(p) : null;
-		}
-		catch (IOException e) {
-			// ignore and continue with symLinkDest == null
-		}
+		FileType fileType = FSUtilities.getFileType(f);
+		String symLinkDest = fileType == FileType.SYMBOLIC_LINK ? FSUtilities.readSymlink(f) : null;
 		return FileAttributes.of(
 			FileAttribute.create(NAME_ATTR, f.getName()),
 			FileAttribute.create(FILE_TYPE_ATTR, fileType),
 			FileAttribute.create(SIZE_ATTR, f.length()),
 			FileAttribute.create(MODIFIED_DATE_ATTR, new Date(f.lastModified())),
-			symLinkDest != null
-					? FileAttribute.create(SYMLINK_DEST_ATTR, symLinkDest.toString())
-					: null);
-	}
-
-	private static FileType fileToFileType(Path p) {
-		if (Files.isSymbolicLink(p)) {
-			return FileType.SYMBOLIC_LINK;
-		}
-		if (Files.isDirectory(p)) {
-			return FileType.DIRECTORY;
-		}
-		if (Files.isRegularFile(p)) {
-			return FileType.FILE;
-		}
-		return FileType.UNKNOWN;
+			symLinkDest != null ? FileAttribute.create(SYMLINK_DEST_ATTR, symLinkDest) : null);
 	}
 
 	@Override
@@ -222,11 +207,20 @@ public class LocalFileSystem implements GFileSystem, GFileHashProvider {
 	}
 
 	@Override
-	public GFileImpl lookup(String path) throws IOException {
-		File f = new File(path);
-		GFileImpl gf = GFileImpl.fromPathString(this, FilenameUtils.separatorsToUnix(f.getPath()),
-			null, f.isDirectory(), f.length());
-		return gf;
+	public GFile getRootDir() {
+		return rootDir;
+	}
+
+	@Override
+	public GFile lookup(String path) throws IOException {
+		return lookup(path, null);
+	}
+
+	@Override
+	public GFile lookup(String path, Comparator<String> nameComp) throws IOException {
+		File f = lookupFile(null, path, nameComp);
+		return f != null ? GFileImpl.fromPathString(this,
+			FSUtilities.normalizeNativePath(f.getPath()), null, f.isDirectory(), f.length()) : null;
 	}
 
 	@Override
@@ -259,6 +253,18 @@ public class LocalFileSystem implements GFileSystem, GFileHashProvider {
 	}
 
 	@Override
+	public GFile resolveSymlinks(GFile file) throws IOException {
+		File f = getLocalFile(file.getFSRL());
+		File canonicalFile = f.getCanonicalFile();
+		if (f.equals(canonicalFile)) {
+			return file;
+		}
+		return GFileImpl.fromPathString(this,
+			FSUtilities.normalizeNativePath(canonicalFile.getPath()), null,
+			canonicalFile.isDirectory(), canonicalFile.length());
+	}
+
+	@Override
 	public String toString() {
 		return "Local file system " + fsFSRL;
 	}
@@ -288,54 +294,131 @@ public class LocalFileSystem implements GFileSystem, GFileHashProvider {
 
 	//-----------------------------------------------------------------------------------
 
-	private static class FileFingerprintRec {
-		final String path;
-		final long timestamp;
-		final long length;
+	private record FileFingerprintRec(String path, long timestamp, long length) {
+	}
 
-		FileFingerprintRec(String path, long timestamp, long length) {
-			this.path = path;
-			this.timestamp = timestamp;
-			this.length = length;
+	//--------------------------------------------------------------------------------------------
+	/**
+	 * Looks up a file, by its string path, using a custom comparator.
+	 * <p>
+	 * If any element of the path, or the filename are not found, returns a null.
+	 * <p>
+	 * A null custom comparator avoids testing each element of the directory path and instead
+	 * relies on the native local file system's name matching.
+	 * 
+	 * @param baseDir optional directory to start lookup at 
+	 * @param path String path
+	 * @param nameComp optional {@link Comparator} that will compare filenames, or {@code null} 
+	 * to use native local file system lookup (eg. case-insensitive on windows)
+	 * @return File that points to the requested path, or null if file was not present on the
+	 * local filesystem (because it doesn't exist, or the name comparison function rejected it)
+	 */
+	public static File lookupFile(File baseDir, String path, Comparator<String> nameComp) {
+		// TODO: if path is in unc format "//server/share/path", linux jvm's will normalize the
+		// leading double slashes to a single "/".  Should the path be rejected immediately in a
+		// non-windows jvm?
+		path = Objects.requireNonNullElse(path, "/");
+		File f = new File(baseDir, path); // null baseDir is okay
+		if (!f.isAbsolute()) {
+			Msg.debug(LocalFileSystem.class,
+				"Non-absolute path encountered in LocalFileSystem lookup: " + path);
+			// TODO: this would be better to throw an exception, but because some relative filenames
+			// have leaked into some FSRLs, resolving those paths (even if it produces an incorrect
+			// result) seems preferable.
+			f = f.getAbsoluteFile();
 		}
+		try {
+			if (nameComp == null || f.getParentFile() == null) {
+				// If not using a comparator, or if the requested path is a 
+				// root element (eg "/", or "c:\\"), don't do per-directory-path lookups.
 
-		@Override
-		public int hashCode() {
-			final int prime = 31;
-			int result = 1;
-			result = prime * result + (int) (length ^ (length >>> 32));
-			result = prime * result + ((path == null) ? 0 : path.hashCode());
-			result = prime * result + (int) (timestamp ^ (timestamp >>> 32));
-			return result;
-		}
+				f = updateCaseInsensitiveFilePath(f);
+				return (FSUtilities.isSymlink(f) || f.exists()) ? f : null;
+			}
 
-		@Override
-		public boolean equals(Object obj) {
-			if (this == obj) {
-				return true;
-			}
-			if (obj == null) {
-				return false;
-			}
-			if (!(obj instanceof FileFingerprintRec)) {
-				return false;
-			}
-			FileFingerprintRec other = (FileFingerprintRec) obj;
-			if (length != other.length) {
-				return false;
-			}
-			if (path == null) {
-				if (other.path != null) {
-					return false;
+			// For path "/subdir/file", pathParts will contain, in reverse order:
+			// [/subdir/file, /subdir, /]
+			// The root element ("/", or "c:/") will never be subjected to the name comparator
+			// The case of each element will be what was specified in the path parameter.
+			// Lookup each element in its parent directory, using the comparator to find the file
+			// in the full listing of each directory.
+			// If requested path has "." and ".." elements, findInDir() will not find them, 
+			// avoiding path traversal issues.
+			// TODO: shouldn't use findInDir on the server and share parts of a UNC path "//server/share"
+			List<File> pathParts = getFilePathParts(f);
+
+			for (int i = pathParts.size() - 2 /*skip root ele*/; i >= 0; i--) {
+				File parentDir = pathParts.get(i + 1);
+				File part = pathParts.get(i);
+				File foundFile = findInDir(parentDir, part.getName(), nameComp);
+				if (foundFile == null) {
+					return null;
 				}
+				pathParts.set(i, foundFile);
 			}
-			else if (!path.equals(other.path)) {
-				return false;
-			}
-			if (timestamp != other.timestamp) {
-				return false;
-			}
-			return true;
+			return pathParts.get(0);
+		}
+		catch (IOException e) {
+			Msg.warn(LocalFileSystem.class, "Error resolving path: " + path, e);
+			return null;
 		}
 	}
+
+	static File updateCaseInsensitiveFilePath(File f) throws IOException {
+		// On Windows, getCanonicalFile() will return a corrected path using the case of 
+		// the actual file element on the file system (eg. "c:/users" -> "c:/Users"), if the
+		// element exists.
+		return OperatingSystem.CURRENT_OPERATING_SYSTEM == OperatingSystem.WINDOWS
+				? f.getCanonicalFile()
+				: f;
+	}
+
+	static File findInDir(File dir, String name, Comparator<String> nameComp) throws IOException {
+		File exact = new File(dir, name);
+		if (exact.exists()) {
+			// Skip listing entire dir contents if exact match exists and the match agrees with
+			// the caller's comparator.  The comparator could reject this test, for example
+			// if it was an exact case compare and the requested filename's case didn't match
+			// the actual file's case (on windows).
+			exact = updateCaseInsensitiveFilePath(exact);
+			if (nameComp.compare(exact.getName(), name) == 0) {
+				return exact;
+			}
+		}
+
+		// Searches for "name" in the list of files found in the directory.
+		// Because a case-insensitive comparator could match on several files in the same directory,
+		// query for all the files before picking a match: either an exact string match, or
+		// if there are several candidates, the first in the list after sorting.
+		File[] files = dir.listFiles();
+		List<File> candidateMatches = new ArrayList<>();
+		if (files != null) {
+			for (File f : files) {
+				String foundFilename = f.getName();
+				if (nameComp.compare(name, foundFilename) == 0) {
+					if (name.equals(foundFilename)) {
+						return f;
+					}
+					candidateMatches.add(f);
+				}
+			}
+		}
+		Collections.sort(candidateMatches); // ensures stable results regardless if OS mutates order of listing on different runs
+		return !candidateMatches.isEmpty() ? candidateMatches.get(0) : null;
+	}
+
+	static List<File> getFilePathParts(File f) {
+		// return a list of the parts of the specified file:
+		// "/subdir/file" -> "/subidr/file", "/subdir", "/"
+		// "c:/subdir/file" -> "c:/subdir/file", "c:/subdir", "c:/"
+		// "//uncserver/share/path" -> "//uncserver/share/path", "//uncserver/share", "//uncserver", "//" 
+		//         (windows jvm only, unix jvm will normalize a path's leading "//" to be "/"
+		List<File> results = new ArrayList<File>();
+		while (f != null) {
+			results.add(f);
+			f = f.getParentFile();
+		}
+		return results;
+	}
+
 }

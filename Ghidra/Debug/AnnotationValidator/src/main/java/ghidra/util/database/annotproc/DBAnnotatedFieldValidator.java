@@ -21,12 +21,16 @@ import javax.lang.model.element.*;
 import javax.lang.model.type.*;
 import javax.tools.Diagnostic.Kind;
 
-import db.DBHandle;
-import ghidra.util.database.DBCachedDomainObjectAdapter;
-import ghidra.util.database.DBOpenMode;
 import ghidra.util.database.annot.DBAnnotatedField;
-import ghidra.util.task.TaskMonitor;
 
+/**
+ * A class for validating fields annotated with {@link DBAnnotatedField}
+ * 
+ * <p>
+ * To ensure fields annotated with {@link DBAnnotatedField} meet the criteria required for database
+ * fields in Ghidra. It extends the {@code AbstractDBAnnotationValidator} to provide additional
+ * validation logic specific to database field annotations.
+ */
 public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 	final VariableElement field;
 	final Map<TypeMirror, TypeElement> javaToDBTypeMap;
@@ -43,6 +47,13 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 
 	final TypeElement ENUM_CODEC_ELEM;
 
+	/**
+	 * Construct a new {@code DBAnnotatedFieldValidator} with the specified validation context and
+	 * field element.
+	 * 
+	 * @param ctx the validation context
+	 * @param field the field to validate
+	 */
 	public DBAnnotatedFieldValidator(ValidationContext ctx, VariableElement field) {
 		super(ctx);
 		this.field = field;
@@ -63,6 +74,13 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 		ENUM_CODEC_ELEM = ctx.elementUtils.getTypeElement(ENUM_CODEC_NAME);
 	}
 
+	/**
+	 * Associate a primitive type and its boxed type with the specified codec type in the map.
+	 * 
+	 * @param map the map linking java types to their corresponding codec types
+	 * @param kind the primitive type kind
+	 * @param codecName the fully qualified name of the codec type
+	 */
 	protected void putPrimitiveTypeCodec(Map<TypeMirror, TypeElement> map, TypeKind kind,
 			String codecName) {
 		PrimitiveType primitive = ctx.typeUtils.getPrimitiveType(kind);
@@ -72,12 +90,26 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 		map.put(boxed, codec);
 	}
 
+	/**
+	 * Associate a specified class type with the specified codec type in the map.
+	 * 
+	 * @param map the map linking Java types to their corresponding codec types
+	 * @param cls the class type
+	 * @param codecName the fully qualified name of the codec type
+	 */
 	protected void putTypeCodec(Map<TypeMirror, TypeElement> map, Class<?> cls, String codecName) {
 		TypeMirror type = ctx.elementUtils.getTypeElement(cls.getCanonicalName()).asType();
 		TypeElement codec = ctx.elementUtils.getTypeElement(codecName);
 		map.put(type, codec);
 	}
 
+	/**
+	 * Associate a primitive array type with the specified codec type inthe map.
+	 * 
+	 * @param map the map linking Java types to their corresponding codec types
+	 * @param kind the primitive type kind
+	 * @param codecName the fully qualified name of the codec type
+	 */
 	protected void putPrimitiveArrayTypeCodec(Map<TypeMirror, TypeElement> map, TypeKind kind,
 			String codecName) {
 		PrimitiveType primitive = ctx.typeUtils.getPrimitiveType(kind);
@@ -86,6 +118,19 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 		map.put(array, codec);
 	}
 
+	/**
+	 * Validate the annotated field to ensure it meets the requirements for database fields.
+	 * 
+	 * <p>
+	 * It performs the following checks:
+	 * <ul>
+	 * <li>The field must not be declared as {@code final}.</li>
+	 * <li>The field must not be declared as {@code static}.</li>
+	 * <li>The enclosing type of the field must meet the criteria defined in
+	 * {@code checkEnclosingType}.</li>
+	 * <li>The codec types for the field must be appropriate.</li>
+	 * </ul>
+	 */
 	public void validate() {
 		Set<Modifier> mods = field.getModifiers();
 		if (mods.contains(Modifier.FINAL)) {
@@ -105,6 +150,12 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 		checkCodecTypes(type);
 	}
 
+	/**
+	 * Return the default codec type element for the specified Java type.
+	 * 
+	 * @param javaType the Java type for which the default codec is needed
+	 * @return the default codec type element, or {@code null} if no default codec is found
+	 */
 	protected TypeElement getDefaultCodecType(TypeMirror javaType) {
 		if (ctx.isEnumType(javaType)) {
 			return ENUM_CODEC_ELEM;
@@ -112,6 +163,12 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 		return javaToDBTypeMap.get(javaType);
 	}
 
+	/**
+	 * Return the codec type element specified in the {@link DBAnnotatedField} annotation for the
+	 * field, or the default codec type if none is specified.
+	 * 
+	 * @return the codec type element for the field
+	 */
 	protected TypeElement getCodecTypeElement() {
 		DBAnnotatedField annotation = field.getAnnotation(DBAnnotatedField.class);
 		TypeElement codecElem;
@@ -127,30 +184,13 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 		return codecElem;
 	}
 
-	class A extends DBCachedDomainObjectAdapter {
-
-		protected A(DBHandle dbh, DBOpenMode openMode, TaskMonitor monitor, String name,
-				int timeInterval, int bufSize, Object consumer) {
-			super(dbh, openMode, monitor, name, timeInterval, bufSize, consumer);
-			// TODO Auto-generated constructor stub
-		}
-
-		@Override
-		public boolean isChangeable() {
-			// TODO Auto-generated method stub
-			return false;
-		}
-
-		@Override
-		public String getDescription() {
-			// TODO Auto-generated method stub
-			return null;
-		}
-	}
-
+	/**
+	 * Check the codec types associated with the field to ensure they meet the necessary
+	 * requirements.
+	 * 
+	 * @param objectType the type of the enclosing object
+	 */
 	protected void checkCodecTypes(TypeElement objectType) {
-
-		//experiment(new Blargh(null, null));
 
 		TypeElement codecType = getCodecTypeElement();
 		if (codecType == null) {
@@ -169,13 +209,13 @@ public class DBAnnotatedFieldValidator extends AbstractDBAnnotationValidator {
 		//   3) FieldType is non-abstract
 		//   4) The codec has an appropriate constructor
 
-		for (Element enc : codecType.getEnclosedElements()) {
-			if (enc.getKind() == ElementKind.CONSTRUCTOR) {
-				ExecutableElement exe = (ExecutableElement) enc;
-				ExecutableType exeType = (ExecutableType) exe.asType();
-				//throw new RuntimeException();
-			}
-		}
+//		for (Element enc : codecType.getEnclosedElements()) {
+//			if (enc.getKind() == ElementKind.CONSTRUCTOR) {
+//				ExecutableElement exe = (ExecutableElement) enc;
+//				ExecutableType exeType = (ExecutableType) exe.asType();
+//				//throw new RuntimeException();
+//			}
+//		}
 
 		Map<String, TypeMirror> args = ctx.getArguments(codecType, ctx.DB_FIELD_CODEC_ELEM);
 

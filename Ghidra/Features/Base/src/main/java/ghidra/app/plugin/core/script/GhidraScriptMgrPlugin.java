@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -49,8 +49,8 @@ import ghidra.util.task.TaskListener;
 //@formatter:on
 public class GhidraScriptMgrPlugin extends ProgramPlugin implements GhidraScriptService {
 	private final GhidraScriptComponentProvider provider;
-
 	private final BundleHost bundleHost;
+	private final ScriptList scriptList;
 
 	/**
 	 * {@link GhidraScriptMgrPlugin} is the entry point for all {@link GhidraScript} capabilities.
@@ -58,13 +58,13 @@ public class GhidraScriptMgrPlugin extends ProgramPlugin implements GhidraScript
 	 * @param tool the tool this plugin is added to
 	 */
 	public GhidraScriptMgrPlugin(PluginTool tool) {
-		super(tool, true, true, true);
+		super(tool);
 
 		// Each tool starts a new script manager plugin, but we only ever want one bundle host.
 		// GhidraScriptUtil (creates and) manages one instance.
 		bundleHost = GhidraScriptUtil.acquireBundleHostReference();
-		
-		provider = new GhidraScriptComponentProvider(this, bundleHost);
+		scriptList = new ScriptList(bundleHost);
+		provider = new GhidraScriptComponentProvider(this, bundleHost, scriptList);
 	}
 
 	@Override
@@ -78,14 +78,12 @@ public class GhidraScriptMgrPlugin extends ProgramPlugin implements GhidraScript
 	public void readConfigState(SaveState saveState) {
 		super.readConfigState(saveState);
 		provider.readConfigState(saveState);
-		GhidraScriptEditorComponentProvider.restoreState(saveState);
 	}
 
 	@Override
 	public void writeConfigState(SaveState saveState) {
 		super.writeConfigState(saveState);
 		provider.writeConfigState(saveState);
-		GhidraScriptEditorComponentProvider.saveState(saveState);
 	}
 
 	GhidraState getCurrentState() {
@@ -155,6 +153,13 @@ public class GhidraScriptMgrPlugin extends ProgramPlugin implements GhidraScript
 				// we tried
 			}
 		}
+	}
+
+	@Override
+	public boolean tryToEditFileInVSCode(ResourceFile file) {
+		VSCodeIntegrationService service = tool.getService(VSCodeIntegrationService.class);
+		service.launchVSCode(file.getFile(false));
+		return true;
 	}
 
 	@Override

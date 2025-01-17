@@ -38,10 +38,10 @@ public interface Data extends CodeUnit, Settings {
 
 	/**
 	 * Get the class used to express the value of this data.
-	 * 
+	 *
 	 * <p>NOTE: This determination is made based upon data type and settings only and does not
 	 * examine memory bytes which are used to construct the data value object.
-	 * 
+	 *
 	 * @return value class or null if a consistent class is not utilized.
 	 */
 	public Class<?> getValueClass();
@@ -54,14 +54,26 @@ public interface Data extends CodeUnit, Settings {
 	public boolean hasStringValue();
 
 	/**
-	 * @return true if data is constant.
-	 * If true, isConstant will always be false
+	 * Determine if this data has explicitly been marked as constant.
+	 * NOTE: This is based upon explicit {@link Data} and {@link DataType} mutability settings
+	 * and does not reflect independent memory block or processor specification settings.
+	 * @return true if data is constant, else false.
 	 */
 	public boolean isConstant();
 
 	/**
-	 * @return true if data is volatile.
-	 * If true, isVolatile will always be false
+	 * Determine if this data has explicitly been marked as writable.
+	 * NOTE: This is based upon explicit {@link Data} and {@link DataType} mutability settings
+	 * and does not reflect independent memory block or processor specification settings.
+	 * @return true if data is writable, else false.
+	 */
+	public boolean isWritable();
+
+	/**
+	 * Determine if this data has explicitly been marked as volatile.
+	 * NOTE: This is based upon explicit {@link Data} and {@link DataType} mutability settings
+	 * and does not reflect independent memory block or processor specification settings.
+	 * @return true if data is volatile, else false.
 	 */
 	public boolean isVolatile();
 
@@ -216,7 +228,7 @@ public interface Data extends CodeUnit, Settings {
 	 * Return the first immediate child component that contains the byte at the given offset.  It
 	 * is important to note that with certain datatypes there may be more than one component
 	 * containing the specified offset (see {@link #getComponentsContaining(int)}).
-	 * 
+	 *
 	 * @param offset the amount to add to this data items address to get the address of the
 	 * requested data item.
 	 * @return first data component containing offset or null
@@ -227,10 +239,10 @@ public interface Data extends CodeUnit, Settings {
 	public Data getComponentAt(int offset);
 
 	/**
-	 * RReturn the first immediate child component that contains the byte at the given offset.  It
+	 * Return the first immediate child component that contains the byte at the given offset.  It
 	 * is important to note that with certain datatypes there may be more than one component
 	 * containing the specified offset (see {@link #getComponentsContaining(int)}).
-	 * 
+	 *
 	 * @param offset the amount to add to this data items address to get the
 	 * @return first data component containing offset or null address of the requested data item.
 	 */
@@ -285,4 +297,5 @@ public interface Data extends CodeUnit, Settings {
 	 * @return the prefix
 	 */
 	public String getDefaultLabelPrefix(DataTypeDisplayOptions options);
+
 }

@@ -15,8 +15,7 @@
  */
 package mdemangler;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import org.junit.rules.TestName;
 
@@ -45,6 +44,7 @@ public class MDBaseTestConfiguration {
 	// Internal variables
 	protected String mangled;
 	protected MDParsableItem demangItem;
+	protected boolean isFunction = false;
 
 	protected String demangled;
 	protected String truth;
@@ -60,6 +60,10 @@ public class MDBaseTestConfiguration {
 		if (!quiet) {
 			Msg.info(this, message);
 		}
+	}
+
+	public void setIsFunction(boolean isFunctionArg) {
+		isFunction = isFunctionArg;
 	}
 
 	/**
@@ -86,8 +90,10 @@ public class MDBaseTestConfiguration {
 			outputInfo.append(getTestHeader());
 		}
 
+		mdm.setIsFunction(isFunction);
 		// Meant to be overridden, as needed by extended classes
-		doDemangleSymbol();
+		demangItem = doDemangleSymbol(mdm, mangled);
+		demangled = (demangItem == null) ? "" : demangItem.toString();
 
 		doBasicTestsAndOutput();
 
@@ -123,6 +129,7 @@ public class MDBaseTestConfiguration {
 		}
 	}
 
+	// Need to do a better job here
 	private boolean isMangled(String s) {
 		if (s.charAt(0) == '?') {
 			return true;
@@ -130,9 +137,9 @@ public class MDBaseTestConfiguration {
 		else if (s.startsWith("__")) {
 			return true;
 		}
-		else if ((s.charAt(0) == '_') || Character.isUpperCase(s.charAt(1))) {
-			return true;
-		}
+//		else if ((s.charAt(0) == '_') || Character.isUpperCase(s.charAt(1))) {
+//			return true;
+//		}
 		return false;
 	}
 
@@ -192,14 +199,14 @@ public class MDBaseTestConfiguration {
 	}
 
 	// Meant to be overridden, as needed by extended classes
-	protected void doDemangleSymbol() throws Exception {
+	protected MDParsableItem doDemangleSymbol(MDMang mdmIn, String mangledIn) throws Exception {
+		mdmIn.setMangledSymbol(mangledIn);
+		mdmIn.setErrorOnRemainingChars(true);
 		try {
-			demangItem = mdm.demangle(mangled, true);
-			demangled = demangItem.toString();
+			return mdmIn.demangle();
 		}
 		catch (MDException e) {
-			demangItem = null;
-			demangled = "";
+			return null;
 		}
 	}
 

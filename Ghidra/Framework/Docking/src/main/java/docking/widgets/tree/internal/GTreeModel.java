@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,7 +30,7 @@ import ghidra.util.SystemUtilities;
 public class GTreeModel implements TreeModel {
 
 	private volatile GTreeNode root;
-	private List<TreeModelListener> listeners = new ArrayList<TreeModelListener>();
+	private List<TreeModelListener> listeners = new ArrayList<>();
 	private boolean isFiringNodeStructureChanged;
 	private volatile boolean eventsEnabled = true;
 
@@ -82,9 +82,9 @@ public class GTreeModel implements TreeModel {
 			// This can happen if the client code mutates the children of this node in a background
 			// thread such that there are fewer child nodes on this node, and then before the tree
 			// is notified, the JTree attempts to access a child that is no longer present. The
-			// GTree design specifically allows this situation to occur as a trade off for 
+			// GTree design specifically allows this situation to occur as a trade off for
 			// better performance when performing bulk operations (such as filtering).  If this
-			// does occur, this can be handled easily by temporarily returning a dummy node and 
+			// does occur, this can be handled easily by temporarily returning a dummy node and
 			// scheduling a node structure changed event to reset the JTree.
 			Swing.runLater(() -> fireNodeStructureChanged((GTreeNode) parent));
 			return new InProgressGTreeNode();
@@ -125,20 +125,25 @@ public class GTreeModel implements TreeModel {
 				"GTreeModel.fireNodeStructuredChanged() must be " + "called from the AWT thread");
 
 			// If the tree is filtered and this is called on the original node, we have to
-			// translate the node to a view node (one the jtree knows). 
+			// translate the node to a view node (one the tree knows).
 			GTreeNode viewNode = convertToViewNode(changedNode);
 			if (viewNode == null) {
 				return;
 			}
 
 			if (viewNode != changedNode) {
-				// This means we are filtered and since the original node's children are invalid, 
-				// then the filtered children are invalid also. So clear out the children by
-				// setting an empty list as we don't want to trigger the node to regenerate its 
-				// children which happens if you set the children to null. 
+				// The only time this can happen is when the tree is filtered.  In this case, the
+				// view node will be a clone of the changed node.   We need to update the cloned 
+				// node to signal that the children have changed.  If we set the children to null,
+				// then they will get reloaded when we fire the event.  Instead, if we set the 
+				// children to the empty list, the node will simply think there are no children and
+				// it will not get reloaded.
 				//
-				// This won't cause a second event to the jtree because we are protected
-				// by the isFiringNodeStructureChanged variable
+				// After the events have been fired, there will eventually be a refilter operation 
+				// to update the view node with the correct children for the active filter.
+				//
+				// Note: this won't cause a second event to the tree because we are protected by 
+				// the isFiringNodeStructureChanged flag at the top of this method.
 				viewNode.setChildren(Collections.emptyList());
 			}
 
@@ -170,9 +175,9 @@ public class GTreeModel implements TreeModel {
 		if (viewNode == null) {
 			return;
 		}
-		// Note - we are passing in the treepath of the node that changed.  The javadocs in 
+		// Note - we are passing in the treepath of the node that changed.  The javadocs in
 		// TreemodelListener seems to imply that you need to pass in the treepath of the parent
-		// of the node that changed and then the indexes of the children that changed. But this 
+		// of the node that changed and then the indexes of the children that changed. But this
 		// works and is cheaper then computing the index of the node that changed.
 		TreeModelEvent event = new TreeModelEvent(this, viewNode.getTreePath());
 
@@ -247,7 +252,7 @@ public class GTreeModel implements TreeModel {
 		}
 		GTree tree = root.getTree();
 		if (tree != null) {
-			return tree.getViewNodeForPath(node.getTreePath());
+			return tree.getViewNode(node);
 		}
 		return null;
 	}

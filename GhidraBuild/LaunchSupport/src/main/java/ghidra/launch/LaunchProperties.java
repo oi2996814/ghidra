@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -46,6 +46,7 @@ public class LaunchProperties {
 	public static String VMARGS_PLATFORM = "VMARGS_" + JavaFinder.getCurrentPlatform();
 
 	private Map<String, List<String>> propertyMap;
+	private File launchPropertiesFile;
 
 	/**
 	 * Creates a new launch properties object from the given launch properties file.
@@ -57,7 +58,17 @@ public class LaunchProperties {
 	 */
 	public LaunchProperties(File launchPropertiesFile)
 			throws FileNotFoundException, IOException, ParseException {
+		this.launchPropertiesFile = launchPropertiesFile;
 		propertyMap = parseLaunchProperties(launchPropertiesFile);
+	}
+
+	/**
+	 * Get the launch properties storage file.
+	 * NOTE: File is intended for read-only use by application.
+	 * @return launch properties file
+	 */
+	public File getLaunchPropertiesFile() {
+		return launchPropertiesFile;
 	}
 
 	/**
@@ -98,6 +109,26 @@ public class LaunchProperties {
 			}
 		}
 		return sb.toString();
+	}
+
+	/**
+	 * Gets a {@link List} of VM arguments to use for the launch for the current 
+	 * {@link Platform platform}.
+	 * 
+	 * @return A {@link List} of VM arguments to use for the launch for the current
+	 *   {@link Platform}
+	 */
+	public List<String> getVmArgList() {
+		List<String> ret = new ArrayList<>();
+		List<String> vmargList = propertyMap.get(VMARGS);
+		if (vmargList != null) {
+			ret.addAll(vmargList);
+		}
+		List<String> vmargPlatformList = propertyMap.get(VMARGS_PLATFORM);
+		if (vmargPlatformList != null) {
+			ret.addAll(vmargPlatformList);
+		}
+		return ret;
 	}
 
 	/**

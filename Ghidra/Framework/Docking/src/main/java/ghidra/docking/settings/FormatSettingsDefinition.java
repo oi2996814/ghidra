@@ -28,16 +28,20 @@ public class FormatSettingsDefinition implements EnumSettingsDefinition {
 
 	//NOTE: if these strings change, the XML needs to changed also...
 	private static final String[] choices = { "hex", "decimal", "binary", "octal", "char" };
+	private static final String[] valuePostfix = { "h", "", "b", "o", "" };
 	private static final int[] radix = { 16, 10, 2, 8, 0 };
 
 	protected static final String FORMAT = "format";
 
-	public static final FormatSettingsDefinition DEF_CHAR = new FormatSettingsDefinition(CHAR); // Format with CHAR default
-	public static final FormatSettingsDefinition DEF_HEX = new FormatSettingsDefinition(HEX); // Format with HEX default
+	// Definitions with each settings as a default
+	public static final FormatSettingsDefinition DEF_HEX = new FormatSettingsDefinition(HEX);
 	public static final FormatSettingsDefinition DEF_DECIMAL =
-		new FormatSettingsDefinition(DECIMAL); // Format with DECIMAL default
+		new FormatSettingsDefinition(DECIMAL);
+	public static final FormatSettingsDefinition DEF_BINARY = new FormatSettingsDefinition(BINARY);
+	public static final FormatSettingsDefinition DEF_OCTAL = new FormatSettingsDefinition(OCTAL);
+	public static final FormatSettingsDefinition DEF_CHAR = new FormatSettingsDefinition(CHAR);
 
-	public static final FormatSettingsDefinition DEF = DEF_HEX; // Format with HEX default
+	public static final FormatSettingsDefinition DEF = DEF_HEX; // Default is HEX
 
 	private final int defaultFormat;
 
@@ -47,8 +51,10 @@ public class FormatSettingsDefinition implements EnumSettingsDefinition {
 
 	/**
 	 * Returns the format based on the specified settings
+	 * 
 	 * @param settings the instance settings or null for default value.
-	 * @return the format value (HEX, DECIMAL, BINARY, OCTAL, CHAR)
+	 * @return the format value (HEX, DECIMAL, BINARY, OCTAL, CHAR), or HEX if invalid
+	 * data in the FORMAT settings value
 	 */
 	public int getFormat(Settings settings) {
 		if (settings == null) {
@@ -66,23 +72,34 @@ public class FormatSettingsDefinition implements EnumSettingsDefinition {
 	}
 
 	/**
-	 * Returns the numeric radix associated with the 
-	 * format identified by the specified settings.
+	 * Returns the numeric radix associated with the format identified by the specified settings.
+	 * 
 	 * @param settings the instance settings.
 	 * @return the format radix
 	 */
 	public int getRadix(Settings settings) {
-		try {
-			return radix[getFormat(settings)];
-		}
-		catch (ArrayIndexOutOfBoundsException e) {
-			return 16;
-		}
+		return radix[getFormat(settings)];
+	}
+
+	/**
+	 * Returns a descriptive string suffix that should be appended after converting a value
+	 * using the radix returned by {@link #getRadix(Settings)}.
+	 * 
+	 * @param settings the instance settings
+	 * @return string suffix, such as "h" for HEX, "o" for octal
+	 */
+	public String getRepresentationPostfix(Settings settings) {
+		return valuePostfix[getFormat(settings)];
 	}
 
 	@Override
 	public int getChoice(Settings settings) {
 		return getFormat(settings);
+	}
+
+	@Override
+	public String getValueString(Settings settings) {
+		return choices[getChoice(settings)];
 	}
 
 	@Override
@@ -103,6 +120,11 @@ public class FormatSettingsDefinition implements EnumSettingsDefinition {
 	@Override
 	public String getName() {
 		return "Format";
+	}
+
+	@Override
+	public String getStorageKey() {
+		return FORMAT;
 	}
 
 	@Override
@@ -142,6 +164,7 @@ public class FormatSettingsDefinition implements EnumSettingsDefinition {
 
 	/**
 	 * Sets the settings object to the enum value indicating the specified choice as a string.
+	 * 
 	 * @param settings the settings to store the value.
 	 * @param choice enum string representing a choice in the enum.
 	 */

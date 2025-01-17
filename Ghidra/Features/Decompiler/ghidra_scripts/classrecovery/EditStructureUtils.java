@@ -49,12 +49,16 @@ class EditStructureUtils {
 
 		for (DataTypeComponent newStructComponent : newStructComponents) {
 
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			int structOffset = newStructComponent.getOffset();
 
 			DataTypeComponent currentComponentAtOffset =
 				containingStruct.getComponentAt(offset + structOffset);
+			
+			if(currentComponentAtOffset == null) {
+				continue;
+			}
 
 			DataType newStructCompDt = newStructComponent.getDataType();
 			DataType containingComDt = currentComponentAtOffset.getDataType();
@@ -104,7 +108,7 @@ class EditStructureUtils {
 		}
 
 		for (int i = offset; i < offset + length; i++) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			DataTypeComponent component = structure.getComponentAt(i);
 			if (component == null) {
 				return false;
@@ -142,7 +146,7 @@ class EditStructureUtils {
 
 		while (offset < endOfClear) {
 
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			DataTypeComponent component = structure.getComponentContaining(offset);
 
@@ -209,7 +213,7 @@ class EditStructureUtils {
 
 		while (offset < endOfRange) {
 
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 
 			DataTypeComponent component = structure.getComponentContaining(offset);
 
@@ -226,39 +230,49 @@ class EditStructureUtils {
 		return true;
 	}
 
+
 	/**
 	 * Method to add a field to the given structure. If the structure already has data 
 	 * at the given offset, don't replace. If there is undefined data there then replace 
 	 * it with the data type. If the structure empty, insert the data type at the given offset. 
 	 * If the structure is not big enough and not-empty, grow it so there is room to replace.
-	 * See {@link #canAdd(Structure, int, int, TaskMonitor)} for ensuring operation will be 
+	 * See {@link #canAdd(Structure, int, int, boolean, TaskMonitor)} for ensuring operation will be 
 	 * successful.
 	 * @param structure the given structure
 	 * @param offset the offset to add a field
 	 * @param dataType the data type to add to the field at the given offset
 	 * @param fieldName the name of field
 	 * @param monitor task monitor
-	 * @return the updated structure data type
-	 * @throws IllegalArgumentException if issue inserting data type into structure
+	 * @return true if the structure was updated or false if the data could not be added
+	 * @throws IllegalArgumentException if issue inserting or replacing data type into structure
 	 * @throws CancelledException if cancelled
 	 */
-	static Structure addDataTypeToStructure(Structure structure, int offset,
-			DataType dataType, String fieldName, TaskMonitor monitor)
-			throws CancelledException, IllegalArgumentException {
-		
+	static boolean addDataTypeToStructure(Structure structure, int offset, DataType dataType,
+			String fieldName, TaskMonitor monitor) throws CancelledException {
+
 		if (structure.isPackingEnabled()) {
 			throw new IllegalArgumentException(
 				"Packed structures are not supported by this method");
+		}
+
+		if (!canAdd(structure, offset, dataType.getLength(), true, monitor)) {
+			return false;
 		}
 
 		if (structure.isZeroLength() || offset >= structure.getLength()) {
 			structure.insertAtOffset(offset, dataType, -1, fieldName, null);
 		}
 		else {
+			// if not enough room, grow the structure
+			int roomForData = structure.getLength() - (offset + dataType.getLength());
+			if (roomForData < 0) {
+				structure.growStructure(-roomForData);
+			}
 			structure.replaceAtOffset(offset, dataType, -1, fieldName, null);
 		}
-		return structure;
+		return true;
 	}
+
 
 	/**
 	 * Method to determine if the given structure has room at the given offset to have a component 
@@ -266,15 +280,18 @@ class EditStructureUtils {
 	 * @param structureDataType the given structure
 	 * @param offset the offset to check for available room
 	 * @param lengthToAdd the length of bytes wanted to add at the offset
+	 * @param isGrowthAllowed Whether true or false, adding is only allowed if no collision will
+	 * happen with existing defined components. If true, allows structure to be grown beyond its end
+	 * if necessary. If false, it does not allow structure to be grown. 
 	 * @param monitor task monitor
 	 * @return true if the given structure has room at the given offset to have a component of the 
-	 * given length added to it or if the offset is beyond the end of the structure so that the 
-	 * structure can be grown
+	 * given length added to it or if the offset is beyond the end of the defined components in the
+	 * the structure so that the structure can be grown
 	 * @throws CancelledException if cancelled
 	 * @throws IllegalArgumentException if a packed structure is passed in
 	 */
 	static boolean canAdd(Structure structureDataType, int offset, int lengthToAdd,
-			TaskMonitor monitor) throws CancelledException {
+			boolean isGrowthAllowed, TaskMonitor monitor) throws CancelledException {
 
 		if (structureDataType.isPackingEnabled()) {
 			throw new IllegalArgumentException(
@@ -283,12 +300,24 @@ class EditStructureUtils {
 
 		DataTypeComponent component = structureDataType.getComponentContaining(offset);
 
-		// structure not big enough to contain the offset so return true so it can be grown
+		// structure not big enough to contain the offset 
+		// if growStructure flag is true, return true so structure can be grown
+		// if growStructure flag is false, return false since the offset does not exist so it would
+		// be impossible to add anything at that offset
 		if (component == null) {
-			return true;
+			if (isGrowthAllowed) {
+				return true;
+			}
+			return false;
 		}
 
-		// if the offset is in the middle of an internal component then return false
+		// if growStructure flag is false and if offset + lengthToAdd is greater than length of 
+		// structure then return false
+		if (!isGrowthAllowed && (structureDataType.getLength() < (offset + lengthToAdd))) {
+			return false;
+		}
+
+		// if the offset is in the middle of an internal component then return false 
 		if (component.getOffset() != offset) {
 			return false;
 		}
@@ -332,7 +361,7 @@ class EditStructureUtils {
 		int index = offset - 1;
 
 		while (index >= 0) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			DataTypeComponent component = structure.getComponentAt(index);
 			if (component != null && component.getDataType() == DataType.DEFAULT) {
 				index--;
@@ -360,7 +389,7 @@ class EditStructureUtils {
 		int index = offset;
 
 		while (index < structure.getLength()) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			DataTypeComponent component = structure.getComponentAt(index);
 			if (component.getDataType() == DataType.DEFAULT) {
 				index++;

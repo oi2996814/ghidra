@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,13 +18,13 @@ package ghidra.trace.model.modules;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;
 import ghidra.trace.model.Trace;
-import ghidra.trace.model.TraceObject;
+import ghidra.trace.model.TraceUniqueObject;
 import ghidra.util.exception.DuplicateNameException;
 
 /**
  * A section of a module in a trace
  */
-public interface TraceSection extends TraceObject {
+public interface TraceSection extends TraceUniqueObject {
 
 	/**
 	 * Get the trace containing this section
@@ -83,16 +83,20 @@ public interface TraceSection extends TraceObject {
 
 	/**
 	 * @see #getRange()
+	 * @return the min address in the range
 	 */
 	default Address getStart() {
-		return getRange().getMinAddress();
+		AddressRange range = getRange();
+		return range == null ? null : range.getMinAddress();
 	}
 
 	/**
 	 * @see #getRange()
+	 * @return the max address in the range
 	 */
 	default Address getEnd() {
-		return getRange().getMaxAddress();
+		AddressRange range = getRange();
+		return range == null ? null : range.getMaxAddress();
 	}
 
 	/**

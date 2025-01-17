@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,9 @@ import java.util.*;
 import javax.swing.*;
 
 import docking.ComponentProvider;
-import docking.DialogComponentProvider;
+import docking.ReusableDialogComponentProvider;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors.Messages;
 import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.plugin.core.instructionsearch.InstructionSearchPlugin;
 import ghidra.app.plugin.core.instructionsearch.model.InstructionMetadata;
@@ -59,7 +61,10 @@ import ghidra.util.task.TaskMonitor;
  * ------------------------------------
  */
 
-public class InstructionSearchDialog extends DialogComponentProvider implements Observer {
+public class InstructionSearchDialog extends ReusableDialogComponentProvider implements Observer {
+
+	private static final Color BG_COLOR_MARKERS =
+		new GColor("color.bg.plugin.instructionsearch.search.markers");
 
 	// Panel containing the {@link InstructionTable} and {@link PreviewTable}.
 	private InstructionSearchMainPanel tablePanel;
@@ -70,7 +75,7 @@ public class InstructionSearchDialog extends DialogComponentProvider implements 
 	// Panel for displaying error messages.
 	private MessagePanel messagePanel;
 
-	// The parent pluain object.
+	// The parent plugin object.
 	private InstructionSearchPlugin plugin;
 
 	private JButton searchAllButton;
@@ -128,15 +133,14 @@ public class InstructionSearchDialog extends DialogComponentProvider implements 
 	 *
 	 * @param selection the current selection
 	 * @param plugin the parent plugin
-	 * @throws InvalidInputException  if there's a problem loading instructions
 	 */
-	public void loadInstructions(ProgramSelection selection, InstructionSearchPlugin plugin)
-			throws InvalidInputException {
+	public void loadInstructions(ProgramSelection selection, InstructionSearchPlugin plugin) {
 
-		if (selection == null && getMessagePanel() != null) {
-			getMessagePanel().setMessageText(
+		MessagePanel msg = getMessagePanel();
+		if (selection == null && msg != null) {
+			msg.setMessageText(
 				"Select instructions from the listing (and hit reload) to populate the table.",
-				Color.BLUE);
+				Messages.NORMAL);
 		}
 
 		if (selection != null && plugin.isSelectionValid(selection, this)) {
@@ -148,6 +152,26 @@ public class InstructionSearchDialog extends DialogComponentProvider implements 
 			// Load the instructions, but note that we only allow a single selection range.  If
 			// there's more than one we will process the FIRST one, and display a warning message.
 			populateSearchData(plugin.getCurrentProgram(), selection);
+		}
+	}
+
+	/**
+	 * Adds the instructions in the given selection and displays them in the gui.
+	 *
+	 * @param selection the current selection
+	 * @param plugin the parent plugin
+	 */
+	public void addToInstructions(ProgramSelection selection, InstructionSearchPlugin plugin) {
+
+		MessagePanel msg = getMessagePanel();
+		if (selection == null && msg != null) {
+			msg.setMessageText(
+				"Select instructions from the listing (and hit add) to update the table.",
+				Messages.NORMAL);
+		}
+
+		if (selection != null && plugin.isSelectionValid(selection, this)) {
+			addToSearchData(plugin.getCurrentProgram(), selection);
 		}
 	}
 
@@ -169,6 +193,20 @@ public class InstructionSearchDialog extends DialogComponentProvider implements 
 		}
 		catch (InvalidInputException e) {
 			Msg.error(this, "Error loading new search data", e);
+		}
+	}
+
+	private void addToSearchData(Program currentProgram, ProgramSelection selection) {
+
+		if (selection == null || currentProgram == null) {
+			return;
+		}
+
+		try {
+			getSearchData().add(currentProgram, selection);
+		}
+		catch (InvalidInputException e) {
+			Msg.error(this, "Error adding to search data", e);
 		}
 	}
 
@@ -497,8 +535,9 @@ public class InstructionSearchDialog extends DialogComponentProvider implements 
 
 			model.setSelectionSize(matchSize);
 			TableComponentProvider<Address> tableProvider =
-				table.showTableWithMarkers(title + " " + model.getName(), "InstructionSearch",
-					model, Color.GREEN, null, "Instruction Search Results", null);
+				table.showTableWithMarkers(title + " " + model.getName(),
+					"Instruction Search Results", model, BG_COLOR_MARKERS, null,
+					"Search", null);
 			tableProvider.installRemoveItemsAction();
 		};
 		SystemUtilities.runSwingLater(runnable);

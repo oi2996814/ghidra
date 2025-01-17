@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +16,7 @@
 package ghidra.file.formats.java;
 
 import java.io.*;
+import java.util.Comparator;
 import java.util.List;
 
 import org.apache.commons.io.FilenameUtils;
@@ -27,6 +28,7 @@ import ghidra.formats.gfilesystem.*;
 import ghidra.formats.gfilesystem.annotations.FileSystemInfo;
 import ghidra.formats.gfilesystem.fileinfo.FileAttribute;
 import ghidra.formats.gfilesystem.fileinfo.FileAttributes;
+import ghidra.framework.Application;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 import utilities.util.FileUtilities;
@@ -39,14 +41,15 @@ import utilities.util.FileUtilities;
 @FileSystemInfo(type = "javaclass", description = "Java Class Decompiler", factory = JavaClassDecompilerFileSystemFactory.class, priority = FileSystemInfo.PRIORITY_LOW)
 public class JavaClassDecompilerFileSystem implements GFileSystem {
 
-	private FSRLRoot fsFSRL;
+	private final FSRLRoot fsFSRL;
+	private final FileSystemService fsService;
+
 	private FileSystemRefManager refManager = new FileSystemRefManager(this);
 	private SingleFileSystemIndexHelper fsIndexHelper;
 	private ByteProvider provider;
 	private FSRL containerFSRL;
 	private String className;
 	private String javaSrcFilename;
-	private FileSystemService fsService;
 
 	public JavaClassDecompilerFileSystem(FSRLRoot fsFSRL, ByteProvider provider,
 			FileSystemService fsService, TaskMonitor monitor)
@@ -75,7 +78,7 @@ public class JavaClassDecompilerFileSystem implements GFileSystem {
 			throws CancelledException, IOException {
 		File tempDir = null;
 		try {
-			tempDir = FileUtilities.createTempDirectory("JavaClassDecompilerFileSystem");
+			tempDir = new File(Application.getUserTempDirectory(), "JavaClassDecompilerFileSystem");
 
 			File tempClassFile = new File(tempDir, containerFSRL.getName());
 			FSUtilities.copyByteProviderToFile(provider, tempClassFile, monitor);
@@ -128,8 +131,13 @@ public class JavaClassDecompilerFileSystem implements GFileSystem {
 	}
 
 	@Override
-	public GFile lookup(String path) throws IOException {
+	public GFile lookup(String path) {
 		return fsIndexHelper.lookup(path);
+	}
+
+	@Override
+	public GFile lookup(String path, Comparator<String> nameComp) throws IOException {
+		return fsIndexHelper.lookup(null, path, nameComp);
 	}
 
 	@Override

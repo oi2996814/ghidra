@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,25 +15,22 @@
  */
 package ghidra.program.model.pcode;
 
-import java.io.InputStream;
+import static ghidra.program.model.pcode.AttributeId.*;
+import static ghidra.program.model.pcode.ElementId.*;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.xml.sax.*;
-
 import ghidra.program.database.function.FunctionDB;
 import ghidra.program.database.symbol.CodeSymbol;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressOutOfBoundsException;
+import ghidra.program.model.address.*;
 import ghidra.program.model.lang.CompilerSpec;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
-import ghidra.util.Msg;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.InvalidInputException;
-import ghidra.util.xml.SpecXmlUtils;
-import ghidra.xml.*;
 
 /**
  *
@@ -43,6 +40,8 @@ import ghidra.xml.*;
  */
 public class HighFunction extends PcodeSyntaxTree {
 	public final static String DECOMPILER_TAG_MAP = "decompiler_tags";
+	public final static String OVERRIDE_NAMESPACE_NAME = "override";
+
 	private Function func; // The traditional function object
 	private Language language;
 	private CompilerSpec compilerSpec;
@@ -51,6 +50,7 @@ public class HighFunction extends PcodeSyntaxTree {
 	private GlobalSymbolMap globalSymbols;
 	private List<JumpTable> jumpTables;
 	private List<DataTypeSymbol> protoOverrides;
+	private Address entryPoint;
 
 	/**
 	 * @param function  function associated with the higher level function abstraction.
@@ -64,7 +64,9 @@ public class HighFunction extends PcodeSyntaxTree {
 		func = function;
 		this.language = language;
 		this.compilerSpec = compilerSpec;
-		localSymbols = new LocalSymbolMap(this, "stack");
+		AddressSpace stackSpace = function.getProgram().getAddressFactory().getStackSpace();
+		entryPoint = function.getEntryPoint();
+		localSymbols = new LocalSymbolMap(this, stackSpace);
 		globalSymbols = new GlobalSymbolMap(this);
 		proto = new FunctionPrototype(localSymbols, function);
 		jumpTables = null;
@@ -87,7 +89,7 @@ public class HighFunction extends PcodeSyntaxTree {
 		if (func instanceof FunctionDB) {
 			return func.getSymbol().getID();
 		}
-		return func.getProgram().getSymbolTable().getDynamicSymbolID(func.getEntryPoint());
+		return func.getProgram().getSymbolTable().getDynamicSymbolID(entryPoint);
 	}
 
 	/**
@@ -206,23 +208,9 @@ public class HighFunction extends PcodeSyntaxTree {
 		}
 	}
 
-	@Override
-	public Varnode newVarnode(int sz, Address addr) {
-		// translate into function overlay space if possible
-		addr = func.getEntryPoint().getAddressSpace().getOverlayAddress(addr);
-		return super.newVarnode(sz, addr);
-	}
-
-	@Override
-	public Varnode newVarnode(int sz, Address addr, int id) {
-		// translate into function overlay space if possible
-		addr = func.getEntryPoint().getAddressSpace().getOverlayAddress(addr);
-		return super.newVarnode(sz, addr, id);
-	}
-
-	private void readHighXML(XmlPullParser parser) throws PcodeXMLException {
-		XmlElement el = parser.peek();
-		String classstring = el.getAttribute("class");
+	private void decodeHigh(Decoder decoder) throws DecoderException {
+		int el = decoder.openElement(ELEM_HIGH);
+		String classstring = decoder.readString(ATTRIB_CLASS);
 		HighVariable var;
 		switch (classstring.charAt(0)) {
 			case 'o':
@@ -241,83 +229,81 @@ public class HighFunction extends PcodeSyntaxTree {
 				var = new HighConstant(this);
 				break;
 			default:
-				throw new PcodeXMLException("Unknown HighVariable class string: " + classstring);
+				throw new DecoderException("Unknown HighVariable class string: " + classstring);
 		}
-		var.restoreXml(parser);
+		var.decode(decoder);
+		decoder.closeElement(el);
 	}
 
-	private void readHighlistXML(XmlPullParser parser) throws PcodeXMLException {
-		XmlElement el = parser.start("highlist");
-		while (parser.peek().isStart()) {
-			readHighXML(parser);
+	private void decodeHighlist(Decoder decoder) throws DecoderException {
+		int el = decoder.openElement(ELEM_HIGHLIST);
+		while (decoder.peekElement() != 0) {
+			decodeHigh(decoder);
 		}
-		parser.end(el);
+		decoder.closeElement(el);
 	}
 
-	/* (non-Javadoc)
-	 * @see ghidra.program.model.pcode.PcodeSyntaxTree#readXML(org.jdom.Element)
-	 */
 	@Override
-	public void readXML(XmlPullParser parser) throws PcodeXMLException {
-		XmlElement start = parser.start("function");
-		String name = start.getAttribute("name");
+	public void decode(Decoder decoder) throws DecoderException {
+		int start = decoder.openElement(ELEM_FUNCTION);
+		String name = decoder.readString(ATTRIB_NAME);
 		if (!func.getName().equals(name)) {
-			throw new PcodeXMLException("Function name mismatch: " + func.getName() + " + " + name);
+			throw new DecoderException("Function name mismatch: " + func.getName() + " + " + name);
 		}
-		while (!parser.peek().isEnd()) {
-			XmlElement subel = parser.peek();
-			if (subel.getName().equals("addr")) {
-				subel = parser.start("addr");
-				Address addr = AddressXML.readXML(subel, getAddressFactory());
-				parser.end(subel);
-				addr = func.getEntryPoint().getAddressSpace().getOverlayAddress(addr);
-				if (!func.getEntryPoint().equals(addr)) {
-					throw new PcodeXMLException("Mismatched address in function tag");
+		for (;;) {
+			int subel = decoder.peekElement();
+			if (subel == 0) {
+				break;
+			}
+			if (subel == ELEM_ADDR.id()) {
+				Address addr = AddressXML.decode(decoder);
+				if (!entryPoint.equals(addr)) {
+					throw new DecoderException("Mismatched address in function tag");
 				}
 			}
-			else if (subel.getName().equals("prototype")) {
-				proto.readPrototypeXML(parser, getDataTypeManager());
+			else if (subel == ELEM_PROTOTYPE.id()) {
+				proto.decodePrototype(decoder, this);
 			}
-			else if (subel.getName().equals("localdb")) {
-				localSymbols.parseScopeXML(parser);
+			else if (subel == ELEM_LOCALDB.id()) {
+				localSymbols.decodeScope(decoder);
 			}
-			else if (subel.getName().equals("ast")) {
-				super.readXML(parser);
+			else if (subel == ELEM_AST.id()) {
+				super.decode(decoder);
 			}
-			else if (subel.getName().equals("highlist")) {
-				readHighlistXML(parser);
+			else if (subel == ELEM_HIGHLIST.id()) {
+				decodeHighlist(decoder);
 			}
-			else if (subel.getName().equals("jumptablelist")) {
-				readJumpTableListXML(parser);
+			else if (subel == ELEM_JUMPTABLELIST.id()) {
+				decodeJumpTableList(decoder);
 			}
-			else if (subel.getName().equals("override")) {
+			else if (subel == ELEM_OVERRIDE.id()) {
 				// Do nothing with override at the moment
-				parser.discardSubTree();
+				decoder.skipElement();
 			}
-			else if (subel.getName().equals("scope")) {
+			else if (subel == ELEM_SCOPE.id()) {
 				// This must be a subscope of the local scope
 				// Currently this can only hold static variables of the function
 				// which ghidra already knows about
-				parser.discardSubTree();
+				decoder.skipElement();
 			}
 			else {
-				throw new PcodeXMLException("Unknown tag in function: " + subel.getName());
+				throw new DecoderException("Unknown element in function");
 			}
 		}
-		parser.end(start);
+		decoder.closeElement(start);
 	}
 
 	/**
-	 * Read in the Jump Table list for this function from XML
+	 * Decode the Jump Table list for this function from the stream
 	 *
-	 * @param parser is the XML stream
-	 * @throws PcodeXMLException for any format errors
+	 * @param decoder is the stream decoder
+	 * @throws DecoderException for invalid encodings
 	 */
-	private void readJumpTableListXML(XmlPullParser parser) throws PcodeXMLException {
-		XmlElement el = parser.start("jumptablelist");
-		while (parser.peek().isStart()) {
-			JumpTable table = new JumpTable(func.getEntryPoint().getAddressSpace());
-			table.restoreXml(parser, getAddressFactory());
+	private void decodeJumpTableList(Decoder decoder) throws DecoderException {
+		int el = decoder.openElement(ELEM_JUMPTABLELIST);
+		while (decoder.peekElement() != 0) {
+			JumpTable table = new JumpTable(entryPoint.getAddressSpace());
+			table.decode(decoder);
 			if (!table.isEmpty()) {
 				if (jumpTables == null) {
 					jumpTables = new ArrayList<>();
@@ -325,7 +311,7 @@ public class HighFunction extends PcodeSyntaxTree {
 				jumpTables.add(table);
 			}
 		}
-		parser.end(el);
+		decoder.closeElement(el);
 	}
 
 	protected Address getPCAddress(Varnode rep) {
@@ -334,10 +320,10 @@ public class HighFunction extends PcodeSyntaxTree {
 			pcaddr = rep.getPCAddress();
 			if (pcaddr == Address.NO_ADDRESS) {
 				try {
-					pcaddr = func.getEntryPoint().add(-1);
+					pcaddr = entryPoint.add(-1);
 				}
 				catch (AddressOutOfBoundsException e) {
-					pcaddr = func.getEntryPoint();
+					pcaddr = entryPoint;
 				}
 			}
 		}
@@ -407,7 +393,7 @@ public class HighFunction extends PcodeSyntaxTree {
 				// need to separate out first use versus mapped use.  When the high local is written
 				// to database, these issues will be resolved at that point.
 				sym = localSymbols.newMappedSymbol(0, highloc.getName(), highloc.getDataType(),
-					new VariableStorage(func.getProgram(), vn), vn.getPCAddress(), -1);
+					buildStorage(vn), vn.getPCAddress(), -1);
 				reslocal = new HighLocal(highloc.getDataType(), vn, null, vn.getPCAddress(), sym);
 
 				resremain = highloc; // Keep remaining varnodes in old high
@@ -425,105 +411,102 @@ public class HighFunction extends PcodeSyntaxTree {
 			return reslocal;
 		}
 		catch (InvalidInputException e) {
-			throw new PcodeXMLException("Bad storage node", e);
+			throw new DecoderException("Bad storage node", e);
 		}
 	}
 
 	/**
-	 * Build an XML string that represents all the information about this HighFunction. The
-	 * size describes how many bytes starting from the entry point are used by the function, but
-	 * this doesn't need to be strictly accurate as it is only used to associate the function with
-	 * addresses near its entry point.
-	 *
+	 * Encode this HighFunction to a stream. The size describes how many bytes starting from the
+	 * entry point are used by the function, but this doesn't need to be strictly accurate as it
+	 * is only used to associate the function with addresses near its entry point.
+	 * @param encoder is the stream encoder
 	 * @param id is the id associated with the function symbol
 	 * @param namespace is the namespace containing the function symbol
 	 * @param entryPoint pass null to use the function entryPoint, pass an address to force an entry point
 	 * @param size describes how many bytes the function occupies as code
-	 * @return the XML string
+	 * @throws IOException for errors in the underlying stream
 	 */
-	public String buildFunctionXML(long id, Namespace namespace, Address entryPoint, int size) {
+	public void encode(Encoder encoder, long id, Namespace namespace, Address entryPoint, int size)
+			throws IOException {
 		// Functions aren't necessarily contiguous with the smallest address being the entry point
 		// So size needs to be smaller than size of the contiguous chunk containing the entry point
-		StringBuilder resBuf = new StringBuilder();
-		resBuf.append("<function");
+		encoder.openElement(ELEM_FUNCTION);
 		if (id != 0) {
-			SpecXmlUtils.encodeUnsignedIntegerAttribute(resBuf, "id", id);
+			encoder.writeUnsignedInteger(ATTRIB_ID, id);
 		}
-		SpecXmlUtils.xmlEscapeAttribute(resBuf, "name", func.getName());
-		SpecXmlUtils.encodeSignedIntegerAttribute(resBuf, "size", size);
+		String funcName = func.getName();
+		encoder.writeString(ATTRIB_NAME, funcName);
+		String altName = getDataTypeManager().getNameTransformer().simplify(funcName);
+		if (!altName.equals(funcName)) {
+			encoder.writeString(ATTRIB_LABEL, altName);
+		}
+		encoder.writeSignedInteger(ATTRIB_SIZE, size);
 		if (func.isInline()) {
-			SpecXmlUtils.encodeBooleanAttribute(resBuf, "inline", true);
+			encoder.writeBool(ATTRIB_INLINE, true);
 		}
 		if (func.hasNoReturn()) {
-			SpecXmlUtils.encodeBooleanAttribute(resBuf, "noreturn", true);
+			encoder.writeBool(ATTRIB_NORETURN, true);
 		}
-		resBuf.append(">\n");
 		if (entryPoint == null) {
-			AddressXML.buildXML(resBuf, func.getEntryPoint());
+			AddressXML.encode(encoder, this.entryPoint);
 		}
 		else {
-			AddressXML.buildXML(resBuf, entryPoint);		// Address is forced on XML
+			AddressXML.encode(encoder, entryPoint);		// Address is forced on XML
 		}
-		localSymbols.buildLocalDbXML(resBuf, namespace);
-		proto.buildPrototypeXML(resBuf, getDataTypeManager());
+		localSymbols.encodeLocalDb(encoder, namespace, getDataTypeManager().getNameTransformer());
+		proto.encodePrototype(encoder, getDataTypeManager(), -1);
 		if ((jumpTables != null) && (jumpTables.size() > 0)) {
-			resBuf.append("<jumptablelist>\n");
+			encoder.openElement(ELEM_JUMPTABLELIST);
 			for (JumpTable jumpTable : jumpTables) {
-				jumpTable.buildXml(resBuf);
+				jumpTable.encode(encoder);
 			}
-			resBuf.append("</jumptablelist>\n");
+			encoder.closeElement(ELEM_JUMPTABLELIST);
 		}
 		boolean hasOverrideTag = ((protoOverrides != null) && (protoOverrides.size() > 0));
 		if (hasOverrideTag) {
-			resBuf.append("<override>\n");
-		}
-		if ((protoOverrides != null) && (protoOverrides.size() > 0)) {
+			encoder.openElement(ELEM_OVERRIDE);
 			PcodeDataTypeManager dtmanage = getDataTypeManager();
+			Program prog = func.getProgram();
 			for (DataTypeSymbol sym : protoOverrides) {
 				Address addr = sym.getAddress();
+				int firstVarArg = HighFunctionDBUtil.getFirstVarArg(prog, addr);
 				FunctionPrototype fproto = new FunctionPrototype(
 					(FunctionSignature) sym.getDataType(), compilerSpec, false);
-				resBuf.append("<protooverride>\n");
-				AddressXML.buildXML(resBuf, addr);
-				fproto.buildPrototypeXML(resBuf, dtmanage);
-				resBuf.append("</protooverride>\n");
+				encoder.openElement(ELEM_PROTOOVERRIDE);
+				AddressXML.encode(encoder, addr);
+				fproto.encodePrototype(encoder, dtmanage, firstVarArg);
+				encoder.closeElement(ELEM_PROTOOVERRIDE);
 			}
+			encoder.closeElement(ELEM_OVERRIDE);
 		}
-		if (hasOverrideTag) {
-			resBuf.append("</override>\n");
-		}
-		resBuf.append("</function>\n");
-		return resBuf.toString();
+		encoder.closeElement(ELEM_FUNCTION);
 	}
 
-	public static ErrorHandler getErrorHandler(final Object errOriginator,
-			final String targetName) {
-		return new ErrorHandler() {
-			@Override
-			public void error(SAXParseException exception) throws SAXException {
-				Msg.error(errOriginator, "Error parsing " + targetName, exception);
-			}
+	@Override
+	public void setVolatile(Varnode vn, boolean val) {
+		if (val) {
+			// Volatile varnodes are modeled as annotations with no HighVariable
+			// Give the volatile a chance to populate a global symbol
+			globalSymbols.populateAnnotation(vn);
+		}
+	}
 
-			@Override
-			public void fatalError(SAXParseException exception) throws SAXException {
-				Msg.error(errOriginator, "Fatal error parsing " + targetName, exception);
-			}
-
-			@Override
-			public void warning(SAXParseException exception) throws SAXException {
-				Msg.warn(errOriginator, "Warning parsing " + targetName, exception);
-			}
-		};
+	public static boolean isOverrideNamespace(Namespace namespace) {
+		if (!OVERRIDE_NAMESPACE_NAME.equals(namespace.getName())) {
+			return false;
+		}
+		Namespace parent = namespace.getParentNamespace();
+		return (parent instanceof Function);
 	}
 
 	public static Namespace findOverrideSpace(Function func) {
 		SymbolTable symtab = func.getProgram().getSymbolTable();
-		return findNamespace(symtab, func, "override");
+		return findNamespace(symtab, func, OVERRIDE_NAMESPACE_NAME);
 	}
 
 	public static Namespace findCreateOverrideSpace(Function func) {
 		SymbolTable symtab = func.getProgram().getSymbolTable();
-		return findCreateNamespace(symtab, func, "override");
+		return findCreateNamespace(symtab, func, OVERRIDE_NAMESPACE_NAME);
 	}
 
 	public static Namespace findNamespace(SymbolTable symtab, Namespace parent, String name) {
@@ -594,29 +577,6 @@ public class HighFunction extends PcodeSyntaxTree {
 	}
 
 	/**
-	 * Create XML parse tree from an input XML string
-	 *
-	 * TODO: this probably doesn't belong here.
-	 *
-	 * @param xml is the XML string to parse
-	 * @param handler is the handler to use for parsing errors
-	 * @return the XML tree
-	 *
-	 * @throws PcodeXMLException for format errors in the XML
-	 */
-	static public XmlPullParser stringTree(InputStream xml, ErrorHandler handler)
-			throws PcodeXMLException {
-		try {
-			XmlPullParser parser =
-				XmlPullParserFactory.create(xml, "Decompiler Result Parser", handler, false);
-			return parser;
-		}
-		catch (Exception e) {
-			throw new PcodeXMLException("XML parsing error: " + e.getMessage(), e);
-		}
-	}
-
-	/**
 	 * The decompiler treats some namespaces as equivalent to the "global" namespace.
 	 * Return true if the given namespace is treated as equivalent.
 	 * @param namespace is the namespace
@@ -630,13 +590,16 @@ public class HighFunction extends PcodeSyntaxTree {
 	}
 
 	/**
-	 * Append an XML &lt;parent&gt; tag to the buffer describing the formal path elements
+	 * Encode &lt;parent&gt; element to the stream describing the formal path elements
 	 * from the root (global) namespace up to the given namespace
-	 * @param buf is the buffer to write to
+	 * @param encoder is the stream encoder
 	 * @param namespace is the namespace being described
+	 * @param transformer is used to computer the displayed version of each namespace
+	 * @throws IOException for errors in the underlying stream
 	 */
-	static public void createNamespaceTag(StringBuilder buf, Namespace namespace) {
-		buf.append("<parent>\n");
+	static public void encodeNamespace(Encoder encoder, Namespace namespace,
+			NameTransformer transformer) throws IOException {
+		encoder.openElement(ELEM_PARENT);
 		if (namespace != null) {
 			ArrayList<Namespace> arr = new ArrayList<>();
 			Namespace curspc = namespace;
@@ -647,17 +610,22 @@ public class HighFunction extends PcodeSyntaxTree {
 				}
 				curspc = curspc.getParentNamespace();
 			}
-			buf.append("<val/>\n"); // Force global scope to have empty name
+			encoder.openElement(ELEM_VAL);	// Force global scope to have empty name
+			encoder.closeElement(ELEM_VAL);
 			for (int i = 1; i < arr.size(); ++i) {
 				Namespace curScope = arr.get(i);
-				buf.append("<val");
-				SpecXmlUtils.encodeUnsignedIntegerAttribute(buf, "id", curScope.getID());
-				buf.append('>');
-				SpecXmlUtils.xmlEscape(buf, curScope.getName());
-				buf.append("</val>\n");
+				encoder.openElement(ELEM_VAL);
+				encoder.writeUnsignedInteger(ATTRIB_ID, curScope.getID());
+				String nm = curScope.getName();
+				String altName = transformer.simplify(nm);
+				if (!nm.equals(altName)) {
+					encoder.writeString(ATTRIB_LABEL, altName);
+				}
+				encoder.writeString(ATTRIB_CONTENT, nm);
+				encoder.closeElement(ELEM_VAL);
 			}
 		}
-		buf.append("</parent>\n");
+		encoder.closeElement(ELEM_PARENT);
 	}
 
 	/**

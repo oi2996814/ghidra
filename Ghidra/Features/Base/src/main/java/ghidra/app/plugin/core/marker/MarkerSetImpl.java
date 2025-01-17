@@ -35,13 +35,14 @@ import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.MarkerLocation;
 import ghidra.program.util.ProgramLocation;
+import ghidra.util.ColorUtils;
 import ghidra.util.Swing;
 import ghidra.util.datastruct.SortedRangeList;
 
 abstract class MarkerSetImpl implements MarkerSet {
 
 	protected MarkerManager mgr;
-	private Program program;
+	protected Program program;
 
 	private String name;
 	protected String description;
@@ -50,6 +51,8 @@ abstract class MarkerSetImpl implements MarkerSet {
 
 	protected AddressSetCollection markers;
 	protected SortedRangeList overview = null;
+
+	protected VerticalPixelAddressMap activePixmap = null;
 	protected List<Integer> activeLayouts = null;
 
 	protected Color markerColor;
@@ -98,6 +101,7 @@ abstract class MarkerSetImpl implements MarkerSet {
 
 	/**
 	 * Returns the Navigator Icon for this marker set
+	 * 
 	 * @return the Navigator Icon for this marker set
 	 */
 	public abstract ImageIcon getNavIcon();
@@ -248,11 +252,10 @@ abstract class MarkerSetImpl implements MarkerSet {
 		}
 	}
 
-	public final void paintNavigation(Graphics g, int height, NavigationPanel panel,
-			AddressIndexMap map) {
+	public final void paintNavigation(Graphics g, int height, int width, AddressIndexMap map) {
 		if (showNavigation) {
-			SortedRangeList newOverview = computeNavigationIndexes(height, map);
-			doPaintNavigation(g, height, panel.getWidth(), newOverview);
+			SortedRangeList newOverview = computeNavigationIndices(height, map);
+			doPaintNavigation(g, height, width, newOverview);
 		}
 	}
 
@@ -260,7 +263,7 @@ abstract class MarkerSetImpl implements MarkerSet {
 		int red = (c.getRed() + 3 * COLOR_VALUE) / 4;
 		int green = (c.getGreen() + 3 * COLOR_VALUE) / 4;
 		int blue = (c.getBlue() + 3 * COLOR_VALUE) / 4;
-		return new Color(red, green, blue);
+		return ColorUtils.getColor(red, green, blue);
 	}
 
 	@Override
@@ -293,7 +296,7 @@ abstract class MarkerSetImpl implements MarkerSet {
 			return null;
 		}
 
-		if (activeLayouts != null) {
+		if (activeLayouts != null && activePixmap == pixmap) {
 			return activeLayouts; // use cache
 		}
 
@@ -311,19 +314,19 @@ abstract class MarkerSetImpl implements MarkerSet {
 			}
 		}
 
+		activePixmap = pixmap;
 		activeLayouts = newLayouts;
 		return newLayouts;
 	}
 
-	private SortedRangeList computeNavigationIndexes(int height, AddressIndexMap map) {
+	private SortedRangeList computeNavigationIndices(int height, AddressIndexMap map) {
 
-		lastHeight = height;
 		double numIndexes = map.getIndexCount().doubleValue();
 		if (markers.isEmpty() || height == 0 || numIndexes == 0) {
 			return null;
 		}
 
-		if (overview != null) {
+		if (overview != null && lastHeight == height) {
 			return overview; // use cache
 		}
 
@@ -376,6 +379,7 @@ abstract class MarkerSetImpl implements MarkerSet {
 			}
 		}
 
+		lastHeight = height;
 		overview = newOverview;
 		return newOverview;
 	}
@@ -391,7 +395,7 @@ abstract class MarkerSetImpl implements MarkerSet {
 	 */
 	public String getTooltip(Address addr, int x, int y) {
 		if (markerDescriptor != null) {
-			MarkerLocation loc = new MarkerLocation(this, mgr.getProgram(), addr, x, y);
+			MarkerLocation loc = new MarkerLocation(this, program, addr, x, y);
 			return markerDescriptor.getTooltip(loc);
 		}
 		return null;
@@ -421,7 +425,10 @@ abstract class MarkerSetImpl implements MarkerSet {
 	public ProgramLocation getProgramLocation(int y, int height, AddressIndexMap map, int x) {
 
 		assertSwing();
-		if (overview == null) {
+		// Many overview panels can be rendering this marker set, each having its own height.
+		// If the height does not match that from the last-computed indices, we need to recompute.
+		computeNavigationIndices(height, map);
+		if (overview == null || lastHeight != height) {
 			return null;
 		}
 
@@ -455,12 +462,12 @@ abstract class MarkerSetImpl implements MarkerSet {
 				addr = set.getMinAddress();
 			}
 			if (markerDescriptor != null) {
-				MarkerLocation ml = new MarkerLocation(this, mgr.getProgram(), addr, x, y);
+				MarkerLocation ml = new MarkerLocation(this, program, addr, x, y);
 				loc = markerDescriptor.getProgramLocation(ml);
 			}
 
 			if (loc == null) {
-				loc = new ProgramLocation(mgr.getProgram(), addr);
+				loc = new ProgramLocation(program, addr);
 			}
 		}
 		return loc;

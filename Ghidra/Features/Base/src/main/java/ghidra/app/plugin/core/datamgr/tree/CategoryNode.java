@@ -104,8 +104,11 @@ public class CategoryNode extends DataTypeTreeNode {
 		if (getClass() != o.getClass()) {
 			return false;
 		}
+
 		CategoryNode otherNode = (CategoryNode) o;
-		if (!category.equals(otherNode.category)) {
+		CategoryPath otherPath = otherNode.getCategory().getCategoryPath();
+		CategoryPath path = getCategory().getCategoryPath();
+		if (!path.equals(otherPath)) {
 			return false;
 		}
 		return name.equals(otherNode.name);
@@ -250,18 +253,20 @@ public class CategoryNode extends DataTypeTreeNode {
 
 	@Override
 	public void valueChanged(Object newValue) {
-		int transactionID = category.getDataTypeManager().startTransaction("rename");
+		String newName = newValue.toString();
+		int transactionID =
+			category.getDataTypeManager().startTransaction("Rename Category " + newName);
 		try {
-			category.setName(newValue.toString());
+			category.setName(newName);
 		}
 		catch (DuplicateNameException e) {
 			Msg.showError(getClass(), null, "Rename Failed",
-				"Category by the name " + newValue + " already exists in this category.");
+				"Category by the name " + newName + " already exists in this category.");
 		}
 		catch (InvalidNameException exc) {
 			String msg = exc.getMessage();
 			if (msg == null) {
-				msg = "Invalid name specified: " + newValue;
+				msg = "Invalid name specified: " + newName;
 			}
 			Msg.showError(getClass(), null, "Invalid name specified", exc.getMessage());
 		}
@@ -281,11 +286,12 @@ public class CategoryNode extends DataTypeTreeNode {
 	}
 
 	/**
-	 * Signals to this node that it has been cut during a cut operation, for example, like during
-	 * a cut/paste operation.
+	 * Signals to this node that it has been cut during a cut operation, for example, like during a
+	 * cut/paste operation.
 	 * <p>
 	 * This implementation will throw a runtime exception if this method is called and
 	 * {@link #canCut()} returns false.
+	 * 
 	 * @param isCut true signals that the node has been cut; false that it is not cut.
 	 */
 	@Override
@@ -294,7 +300,7 @@ public class CategoryNode extends DataTypeTreeNode {
 			throw new AssertException("Cannot call isCut() on a node that cannot be cut.");
 		}
 		this.isCut = isCut;
-		fireNodeChanged(getParent(), this);
+		fireNodeChanged();
 	}
 
 	@Override
@@ -332,9 +338,9 @@ public class CategoryNode extends DataTypeTreeNode {
 	}
 
 	/**
-	 * This method is handy to signal whether this node is can be used to perform actions.
-	 * Returning false from this method is essentially a way to disable the actions that can
-	 * be performed upon this node.
+	 * This method is handy to signal whether this node is can be used to perform actions. Returning
+	 * false from this method is essentially a way to disable the actions that can be performed upon
+	 * this node.
 	 *
 	 * @return true if this node is enabled.
 	 */

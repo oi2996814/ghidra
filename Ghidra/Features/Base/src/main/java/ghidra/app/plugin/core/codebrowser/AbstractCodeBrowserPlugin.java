@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,14 +16,11 @@
 package ghidra.app.plugin.core.codebrowser;
 
 import java.awt.Color;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.swing.ImageIcon;
+import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -33,20 +30,20 @@ import docking.widgets.fieldpanel.*;
 import docking.widgets.fieldpanel.field.Field;
 import docking.widgets.fieldpanel.support.FieldLocation;
 import docking.widgets.fieldpanel.support.FieldSelection;
+import generic.theme.GColor;
+import generic.theme.GIcon;
 import ghidra.GhidraOptions;
 import ghidra.app.events.ProgramHighlightPluginEvent;
 import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.plugin.core.codebrowser.hover.ListingHoverService;
 import ghidra.app.services.*;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.app.util.ProgramDropProvider;
-import ghidra.app.util.viewer.field.ListingField;
-import ghidra.app.util.viewer.field.ListingTextField;
+import ghidra.app.util.viewer.field.*;
 import ghidra.app.util.viewer.format.*;
 import ghidra.app.util.viewer.listingpanel.*;
 import ghidra.app.util.viewer.options.ListingDisplayOptionsEditor;
-import ghidra.app.util.viewer.options.OptionsGui;
 import ghidra.app.util.viewer.util.AddressIndexMap;
 import ghidra.framework.model.*;
 import ghidra.framework.options.*;
@@ -58,21 +55,26 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.*;
-import resources.ResourceManager;
 
 public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> extends Plugin
-		implements CodeViewerService, CodeFormatService, OptionsChangeListener,
-		FormatModelListener, DomainObjectListener, CodeBrowserPluginInterface {
+		implements CodeViewerService, CodeFormatService, OptionsChangeListener, FormatModelListener,
+		DomainObjectListener, CodeBrowserPluginInterface {
 
-	private static final Color CURSOR_LINE_COLOR = GhidraOptions.DEFAULT_CURSOR_LINE_COLOR;
-	private static final String CURSOR_COLOR = "Cursor.Cursor Color - Focused";
-	private static final String UNFOCUSED_CURSOR_COLOR = "Cursor.Cursor Color - Unfocused";
-	private static final String BLINK_CURSOR = "Cursor.Blink Cursor";
-	private static final String MOUSE_WHEEL_HORIZONTAL_SCROLLING = "Mouse.Horizontal Scrolling";
+	private static final String CURSOR_COLOR_OPTIONS_NAME = "Cursor.Cursor Color - Focused";
+	private static final String UNFOCUSED_CURSOR_COLOR_OPTIONS_NAME =
+		"Cursor.Cursor Color - Unfocused";
+	private static final String MOUSE_WHEEL_HORIZONTAL_SCROLLING_OPTIONS_NAME =
+		"Mouse.Horizontal Scrolling";
+
+	//@formatter:off
+	private static final GColor FOCUSED_CURSOR_COLOR = new GColor("color.cursor.focused.listing");
+	private static final GColor UNFOCUSED_CURSOR_COLOR = new GColor("color.cursor.unfocused.listing");
+	private static final GColor CURRENT_LINE_HIGHLIGHT_COLOR = new GColor("color.bg.currentline.listing");
+	//@formatter:on
 
 	// - Icon -
-	private ImageIcon CURSOR_LOC_ICON =
-		ResourceManager.loadImage("images/cursor_arrow_flipped.gif");
+	private static final Icon CURSOR_LOC_ICON =
+		new GIcon("icon.plugin.codebrowser.cursor.location");
 	protected final P connectedProvider;
 	protected List<P> disconnectedProviders = new ArrayList<>();
 	protected FormatManager formatMgr;
@@ -85,7 +87,6 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	private MarkerSet currentHighlightMarkers;
 	private MarkerSet currentCursorMarkers;
 	private ChangeListener markerChangeListener;
-	private FocusingMouseListener focusingMouseListener = new FocusingMouseListener();
 
 	private Color cursorHighlightColor;
 	private boolean isHighlightCursorLine;
@@ -96,7 +97,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 
 		ToolOptions displayOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_DISPLAY);
 		ToolOptions fieldOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
-		displayOptions.registerOptionsEditor(new ListingDisplayOptionsEditor(displayOptions));
+		displayOptions.registerOptionsEditor(() -> new ListingDisplayOptionsEditor(displayOptions));
 		displayOptions.setOptionsHelpLocation(
 			new HelpLocation(getName(), GhidraOptions.CATEGORY_BROWSER_DISPLAY));
 		fieldOptions.setOptionsHelpLocation(
@@ -108,11 +109,10 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 		connectedProvider = createProvider(formatMgr, true);
 		tool.showComponentProvider(connectedProvider, true);
 		initOptions(fieldOptions);
-		initDisplayOptions(displayOptions);
+		connectedProvider.getListingPanel().setTextBackgroundColor(ListingColors.BACKGROUND);
 		initMiscellaneousOptions();
 		displayOptions.addOptionsChangeListener(this);
 		fieldOptions.addOptionsChangeListener(this);
-		tool.setDefaultComponent(connectedProvider);
 		markerChangeListener = new MarkerChangeListener(connectedProvider);
 	}
 
@@ -270,36 +270,22 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 
 	@Override
 	public void addOverviewProvider(OverviewProvider overviewProvider) {
-		JComponent component = overviewProvider.getComponent();
-
-		// just in case we get repeated calls
-		component.removeMouseListener(focusingMouseListener);
-		component.addMouseListener(focusingMouseListener);
-		connectedProvider.getListingPanel().addOverviewProvider(overviewProvider);
+		connectedProvider.addOverviewProvider(overviewProvider);
 	}
 
 	@Override
 	public void addMarginProvider(MarginProvider marginProvider) {
-		JComponent component = marginProvider.getComponent();
-
-		// just in case we get repeated calls
-		component.removeMouseListener(focusingMouseListener);
-		component.addMouseListener(focusingMouseListener);
-		connectedProvider.getListingPanel().addMarginProvider(marginProvider);
+		connectedProvider.addMarginProvider(marginProvider);
 	}
 
 	@Override
 	public void removeOverviewProvider(OverviewProvider overviewProvider) {
-		JComponent component = overviewProvider.getComponent();
-		component.removeMouseListener(focusingMouseListener);
-		connectedProvider.getListingPanel().removeOverviewProvider(overviewProvider);
+		connectedProvider.removeOverviewProvider(overviewProvider);
 	}
 
 	@Override
 	public void removeMarginProvider(MarginProvider marginProvider) {
-		JComponent component = marginProvider.getComponent();
-		component.removeMouseListener(focusingMouseListener);
-		connectedProvider.getListingPanel().removeMarginProvider(marginProvider);
+		connectedProvider.removeMarginProvider(marginProvider);
 	}
 
 	@Override
@@ -334,13 +320,13 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	}
 
 	@Override
-	public void removeHighlightProvider(HighlightProvider highlightProvider,
+	public void removeHighlightProvider(ListingHighlightProvider highlightProvider,
 			Program highlightProgram) {
 		connectedProvider.removeHighlightProvider(highlightProvider, highlightProgram);
 	}
 
 	@Override
-	public void setHighlightProvider(HighlightProvider highlightProvider,
+	public void setHighlightProvider(ListingHighlightProvider highlightProvider,
 			Program highlightProgram) {
 		connectedProvider.setHighlightProvider(highlightProvider, highlightProgram);
 	}
@@ -351,7 +337,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 
 	@Override
 	public void setListingPanel(ListingPanel lp) {
-		connectedProvider.setPanel(lp);
+		connectedProvider.setOtherPanel(lp);
 		viewChanged(currentView);
 	}
 
@@ -363,7 +349,11 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	@Override
 	public void setNorthComponent(JComponent comp) {
 		connectedProvider.setNorthComponent(comp);
+	}
 
+	@Override
+	public void requestFocus() {
+		connectedProvider.requestFocus();
 	}
 
 	@Override
@@ -395,13 +385,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 			Object newValue) {
 
 		ListingPanel listingPanel = connectedProvider.getListingPanel();
-		if (options.getName().equals(GhidraOptions.CATEGORY_BROWSER_DISPLAY)) {
-			if (optionName.equals(OptionsGui.BACKGROUND.getColorOptionName())) {
-				Color c = (Color) newValue;
-				listingPanel.setTextBackgroundColor(c);
-			}
-		}
-		else if (options.getName().equals(GhidraOptions.CATEGORY_BROWSER_FIELDS)) {
+		if (options.getName().equals(GhidraOptions.CATEGORY_BROWSER_FIELDS)) {
 
 			FieldPanel fieldPanel = listingPanel.getFieldPanel();
 			if (optionName.equals(GhidraOptions.OPTION_SELECTION_COLOR)) {
@@ -424,17 +408,13 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 					highlightMarkers.setMarkerColor(color);
 				}
 			}
-			else if (optionName.equals(CURSOR_COLOR)) {
+			else if (optionName.equals(CURSOR_COLOR_OPTIONS_NAME)) {
 				Color color = ((Color) newValue);
 				fieldPanel.setFocusedCursorColor(color);
 			}
-			else if (optionName.equals(UNFOCUSED_CURSOR_COLOR)) {
+			else if (optionName.equals(UNFOCUSED_CURSOR_COLOR_OPTIONS_NAME)) {
 				Color color = ((Color) newValue);
 				fieldPanel.setNonFocusCursorColor(color);
-			}
-			else if (optionName.equals(BLINK_CURSOR)) {
-				Boolean isBlinkCursor = ((Boolean) newValue);
-				fieldPanel.setBlinkCursor(isBlinkCursor);
 			}
 			else if (optionName.equals(GhidraOptions.HIGHLIGHT_CURSOR_LINE_COLOR)) {
 				cursorHighlightColor = (Color) newValue;
@@ -448,7 +428,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 					currentCursorMarkers.setColoringBackground(isHighlightCursorLine);
 				}
 			}
-			else if (optionName.equals(MOUSE_WHEEL_HORIZONTAL_SCROLLING)) {
+			else if (optionName.equals(MOUSE_WHEEL_HORIZONTAL_SCROLLING_OPTIONS_NAME)) {
 				fieldPanel.setHorizontalScrollingEnabled((Boolean) newValue);
 			}
 
@@ -565,27 +545,27 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 		HelpLocation helpLocation = new HelpLocation(getName(), "Selection Colors");
 		fieldOptions.getOptions("Selection Colors").setOptionsHelpLocation(helpLocation);
 
-		fieldOptions.registerOption(GhidraOptions.OPTION_SELECTION_COLOR,
-			GhidraOptions.DEFAULT_SELECTION_COLOR, helpLocation,
+		fieldOptions.registerThemeColorBinding(GhidraOptions.OPTION_SELECTION_COLOR,
+			GhidraOptions.DEFAULT_SELECTION_COLOR.getId(), helpLocation,
 			"The selection color in the browser.");
-		fieldOptions.registerOption(GhidraOptions.OPTION_HIGHLIGHT_COLOR,
-			GhidraOptions.DEFAULT_HIGHLIGHT_COLOR, helpLocation,
+		fieldOptions.registerThemeColorBinding(GhidraOptions.OPTION_HIGHLIGHT_COLOR,
+			GhidraOptions.DEFAULT_HIGHLIGHT_COLOR.getId(), helpLocation,
 			"The highlight color in the browser.");
 
-		fieldOptions.registerOption(CURSOR_COLOR, Color.RED, helpLocation,
-			"The color of the cursor in the browser.");
-		fieldOptions.registerOption(UNFOCUSED_CURSOR_COLOR, Color.PINK, helpLocation,
+		fieldOptions.registerThemeColorBinding(CURSOR_COLOR_OPTIONS_NAME,
+			FOCUSED_CURSOR_COLOR.getId(), helpLocation, "The color of the cursor in the browser.");
+		fieldOptions.registerThemeColorBinding(UNFOCUSED_CURSOR_COLOR_OPTIONS_NAME,
+			UNFOCUSED_CURSOR_COLOR.getId(), helpLocation,
 			"The color of the cursor in the browser when the browser does not have focus.");
-		fieldOptions.registerOption(BLINK_CURSOR, true, helpLocation,
-			"When selected, the cursor will blink when the containing window is focused.");
-		fieldOptions.registerOption(GhidraOptions.HIGHLIGHT_CURSOR_LINE_COLOR, CURSOR_LINE_COLOR,
-			helpLocation, "The background color of the line where the cursor is located");
+		fieldOptions.registerThemeColorBinding(GhidraOptions.HIGHLIGHT_CURSOR_LINE_COLOR,
+			CURRENT_LINE_HIGHLIGHT_COLOR.getId(), helpLocation,
+			"The background color of the line where the cursor is located");
 		fieldOptions.registerOption(GhidraOptions.HIGHLIGHT_CURSOR_LINE, true, helpLocation,
 			"Toggles highlighting background color of line containing the cursor");
 
 		helpLocation = new HelpLocation(getName(), "Keyboard_Controls_Shift");
-		fieldOptions.registerOption(MOUSE_WHEEL_HORIZONTAL_SCROLLING, true, helpLocation,
-			"Enables horizontal scrolling by holding the Shift key while " +
+		fieldOptions.registerOption(MOUSE_WHEEL_HORIZONTAL_SCROLLING_OPTIONS_NAME, true,
+			helpLocation, "Enables horizontal scrolling by holding the Shift key while " +
 				"using the mouse scroll wheel");
 
 		Color color = fieldOptions.getColor(GhidraOptions.OPTION_SELECTION_COLOR,
@@ -598,37 +578,28 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 			selectionMarkers.setMarkerColor(color);
 		}
 
-		color =
-			fieldOptions.getColor(GhidraOptions.OPTION_HIGHLIGHT_COLOR, new Color(255, 255, 180));
+		color = fieldOptions.getColor(GhidraOptions.OPTION_HIGHLIGHT_COLOR,
+			GhidraOptions.DEFAULT_HIGHLIGHT_COLOR);
 		MarkerSet highlightMarkers = getHighlightMarkers(currentProgram);
 		fieldPanel.setHighlightColor(color);
 		if (highlightMarkers != null) {
 			highlightMarkers.setMarkerColor(color);
 		}
 
-		color = fieldOptions.getColor(CURSOR_COLOR, Color.RED);
+		color = fieldOptions.getColor(CURSOR_COLOR_OPTIONS_NAME, FOCUSED_CURSOR_COLOR);
 		fieldPanel.setFocusedCursorColor(color);
 
-		color = fieldOptions.getColor(UNFOCUSED_CURSOR_COLOR, Color.PINK);
+		color = fieldOptions.getColor(UNFOCUSED_CURSOR_COLOR_OPTIONS_NAME, UNFOCUSED_CURSOR_COLOR);
 		fieldPanel.setNonFocusCursorColor(color);
 
-		Boolean isBlinkCursor = fieldOptions.getBoolean(BLINK_CURSOR, true);
-		fieldPanel.setBlinkCursor(isBlinkCursor);
-
 		boolean horizontalScrollingEnabled =
-			fieldOptions.getBoolean(MOUSE_WHEEL_HORIZONTAL_SCROLLING, true);
+			fieldOptions.getBoolean(MOUSE_WHEEL_HORIZONTAL_SCROLLING_OPTIONS_NAME, true);
 		fieldPanel.setHorizontalScrollingEnabled(horizontalScrollingEnabled);
 
-		cursorHighlightColor =
-			fieldOptions.getColor(GhidraOptions.HIGHLIGHT_CURSOR_LINE_COLOR, CURSOR_LINE_COLOR);
+		cursorHighlightColor = fieldOptions.getColor(GhidraOptions.HIGHLIGHT_CURSOR_LINE_COLOR,
+			CURRENT_LINE_HIGHLIGHT_COLOR);
 
 		isHighlightCursorLine = fieldOptions.getBoolean(GhidraOptions.HIGHLIGHT_CURSOR_LINE, true);
-	}
-
-	private void initDisplayOptions(Options displayOptions) {
-		Color color = displayOptions.getColor(OptionsGui.BACKGROUND.getColorOptionName(),
-			OptionsGui.BACKGROUND.getDefaultColor());
-		connectedProvider.getListingPanel().setTextBackgroundColor(color);
 	}
 
 	private void initMiscellaneousOptions() {
@@ -639,7 +610,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 		options.registerOption(ManualViewerCommandWrappedOption.MANUAL_VIEWER_OPTIONS,
 			OptionType.CUSTOM_TYPE,
 			ManualViewerCommandWrappedOption.getDefaultBrowserLoaderOptions(), helpLocation,
-			"Options for running manual viewer", new ManualViewerCommandEditor());
+			"Options for running manual viewer", () -> new ManualViewerCommandEditor());
 
 	}
 
@@ -668,7 +639,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 
 	/**
 	 * Positions the cursor to the given location
-	 * 
+	 *
 	 * @param address the address to goto
 	 * @param fieldName the name of the field to
 	 * @param row the row within the given field
@@ -681,7 +652,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 
 	/**
 	 * Positions the cursor to the given location
-	 * 
+	 *
 	 * @param addr the address to goto
 	 * @param fieldName the name of the field to
 	 * @param occurrence specifies the which occurrence for multiple fields of same type
@@ -707,9 +678,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	public boolean goToField(Address a, String fieldName, int occurrence, int row, int col,
 			boolean scroll) {
 
-		boolean result = SystemUtilities
-				.runSwingNow(() -> doGoToField(a, fieldName, occurrence, row, col, scroll));
-		return result;
+		return Swing.runNow(() -> doGoToField(a, fieldName, occurrence, row, col, scroll));
 	}
 
 	private boolean doGoToField(Address a, String fieldName, int occurrence, int row, int col,
@@ -759,8 +728,9 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 
 		int instanceNum = 0;
 		for (int i = 0; i < layout.getNumFields(); i++) {
-			ListingField bf = (ListingField) layout.getField(i);
-			if (bf.getFieldFactory().getFieldName().equals(fieldName)) {
+			Field f = layout.getField(i);
+			if ((f instanceof ListingField bf) &&
+				bf.getFieldFactory().getFieldName().equals(fieldName)) {
 				if (instanceNum++ == occurrence) {
 					fieldNum = i;
 					break;
@@ -798,12 +768,8 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	@Override
 	public boolean goTo(ProgramLocation location, boolean centerOnScreen) {
 
-		AtomicBoolean didGoTo = new AtomicBoolean();
-		SystemUtilities.runSwingNow(() -> {
-			boolean success = connectedProvider.getListingPanel().goTo(location, centerOnScreen);
-			didGoTo.set(success);
-		});
-		return didGoTo.get();
+		return Swing
+				.runNow(() -> connectedProvider.getListingPanel().goTo(location, centerOnScreen));
 	}
 
 	@Override
@@ -877,16 +843,6 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	}
 
 	@Override
-	public void formatModelAdded(FieldFormatModel model) {
-		// uninterested
-	}
-
-	@Override
-	public void formatModelRemoved(FieldFormatModel model) {
-		// uninterested
-	}
-
-	@Override
 	public void formatModelChanged(FieldFormatModel model) {
 		tool.setConfigChanged(true);
 	}
@@ -898,14 +854,14 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 
 	@Override
 	public void domainObjectChanged(DomainObjectChangedEvent ev) {
-		if (ev.containsEvent(DomainObject.DO_DOMAIN_FILE_CHANGED)) {
+		if (ev.contains(DomainObjectEvent.FILE_CHANGED)) {
 			connectedProvider.updateTitle();
 		}
 
 		if (viewManager != null) {
 			return;
 		}
-		if (ev.containsEvent(DomainObject.DO_OBJECT_RESTORED)) {
+		if (ev.contains(DomainObjectEvent.RESTORED)) {
 			viewChanged(currentProgram.getMemory());
 		}
 	}
@@ -934,12 +890,4 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 			fieldPanel.repaint();
 		}
 	}
-
-	private class FocusingMouseListener extends MouseAdapter {
-		@Override
-		public void mousePressed(MouseEvent e) {
-			connectedProvider.getListingPanel().getFieldPanel().requestFocus();
-		}
-	}
-
 }

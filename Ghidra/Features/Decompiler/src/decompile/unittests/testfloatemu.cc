@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,7 +25,15 @@
 #include <cstring>
 
 #include <limits>
-#include <vector>
+
+namespace ghidra {
+
+using std::isnan;
+using std::sqrt;
+using std::floor;
+using std::ceil;
+using std::round;
+using std::abs;
 
 // utility functions
 float floatFromRawBits(uintb e) {
@@ -75,7 +83,7 @@ uintb doubleToRawBits(double f) {
 
 //// FloatFormat tests
 
-static std::vector<float> float_test_values{
+static vector<float> float_test_values{
     -0.0f,
     +0.0f,
     -1.0f,
@@ -103,7 +111,7 @@ static std::vector<float> float_test_values{
     std::numeric_limits<float>::infinity()
 };
 
-static std::vector<int> int_test_values = {
+static vector<int> int_test_values = {
     0, -1, 1, 1234, -1234, std::numeric_limits<int>::min(), std::numeric_limits<int>::max()
 };
 
@@ -156,6 +164,35 @@ TEST(double_encoding_infinity) {
     ASSERT_DOUBLE_ENCODING(std::numeric_limits<double>::infinity());
     ASSERT_DOUBLE_ENCODING(-std::numeric_limits<double>::infinity());
 }
+
+TEST(float_decimal_precision) {
+  FloatFormat ff(4);
+  float f0 = floatFromRawBits(0x34000001);
+  ASSERT_EQUALS(ff.printDecimal(f0, false), "1.192093e-07")
+  float f1 = floatFromRawBits(0x34800000);
+  ASSERT_EQUALS(ff.printDecimal(f1, false), "2.3841858e-07")
+  float f2 = floatFromRawBits(0x3eaaaaab);
+  ASSERT_EQUALS(ff.printDecimal(f2, false), "0.33333334")
+  float f3 = floatFromRawBits(0x3e800000);
+  ASSERT_EQUALS(ff.printDecimal(f3, false), "0.25");
+  float f4 = floatFromRawBits(0x3de3ee46);
+  ASSERT_EQUALS(ff.printDecimal(f4, false), "0.111294314")
+}
+
+TEST(double_decimal_precision) {
+  FloatFormat ff(8);
+  double f0 = doubleFromRawBits(0x3fc5555555555555);
+  ASSERT_EQUALS(ff.printDecimal(f0, false), "0.16666666666666666");
+  double f1 = doubleFromRawBits(0x7fefffffffffffff);
+  ASSERT_EQUALS(ff.printDecimal(f1, false), "1.79769313486232e+308");
+  double f2 = doubleFromRawBits(0x3fd555555c7dda4b);
+  ASSERT_EQUALS(ff.printDecimal(f2, false), "0.33333334");
+  double f3 = doubleFromRawBits(0x3fd0000000000000);
+  ASSERT_EQUALS(ff.printDecimal(f3, false), "0.25");
+  double f4 = doubleFromRawBits(0x3fb999999999999a);
+  ASSERT_EQUALS(ff.printDecimal(f4, false), "0.1");
+  double f5 = doubleFromRawBits(0x3fbf7ced916872b0);
+  ASSERT_EQUALS(ff.printDecimal(f5, true), "1.23000000000000e-01");}
 
 TEST(float_midpoint_rounding) {
     FloatFormat ff(4);
@@ -256,7 +293,7 @@ TEST(float_opSqrt) {
     FloatFormat format(4);
 
     for(float f:float_test_values) {
-        uintb true_result = floatToRawBits(sqrtf(f));
+        uintb true_result = floatToRawBits(sqrt(f));
         uintb encoding = format.getEncoding(f);
         uintb result = format.opSqrt(encoding);
 
@@ -269,7 +306,7 @@ TEST(float_opCeil) {
     FloatFormat format(4);
 
     for(float f:float_test_values) {
-        uintb true_result = floatToRawBits(ceilf(f));
+        uintb true_result = floatToRawBits(ceil(f));
         uintb encoding = format.getEncoding(f);
         uintb result = format.opCeil(encoding);
 
@@ -282,7 +319,7 @@ TEST(float_opFloor) {
     FloatFormat format(4);
 
     for(float f:float_test_values) {
-        uintb true_result = floatToRawBits(floorf(f));
+        uintb true_result = floatToRawBits(floor(f));
         uintb encoding = format.getEncoding(f);
         uintb result = format.opFloor(encoding);
 
@@ -295,7 +332,7 @@ TEST(float_opRound) {
     FloatFormat format(4);
 
     for(float f:float_test_values) {
-        uintb true_result = floatToRawBits(roundf(f));
+        uintb true_result = floatToRawBits(round(f));
         uintb encoding = format.getEncoding(f);
         uintb result = format.opRound(encoding);
 
@@ -479,4 +516,5 @@ TEST(float_opSub) {
     }
 }
 
+} // End namespace ghidra
 // end generated 

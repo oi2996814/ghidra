@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,19 +24,20 @@ import javax.swing.Icon;
 import docking.action.KeyBindingData;
 import docking.action.MenuData;
 import docking.widgets.tree.GTreeNode;
+import generic.theme.GIcon;
 import ghidra.framework.main.datatree.*;
+import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.task.TaskLauncher;
-import resources.ResourceManager;
 
 public class ProjectDataPasteAction extends ProjectDataCopyCutBaseAction {
-	private static Icon icon = ResourceManager.loadImage("images/page_paste.png");
+	private static Icon ICON = new GIcon("icon.projectdata.paste");
 
 	public ProjectDataPasteAction(String owner, String group) {
 		super("Paste", owner);
-		setPopupMenuData(new MenuData(new String[] { "Paste" }, icon, group));
+		setPopupMenuData(new MenuData(new String[] { "Paste" }, ICON, group));
 		setKeyBindingData(new KeyBindingData('V', InputEvent.CTRL_DOWN_MASK));
-		markHelpUnnecessary();
+		setHelpLocation(new HelpLocation("FrontEndPlugin", "Paste"));
 	}
 
 	@Override
@@ -132,7 +133,7 @@ public class ProjectDataPasteAction extends ProjectDataCopyCutBaseAction {
 			return;
 		}
 
-		boolean listChanged = removeDecendantsFromList(list);
+		boolean listChanged = removeDescendantsFromList(list);
 
 		boolean resetClipboard = false;
 		StringBuffer sb = new StringBuffer();
@@ -187,7 +188,7 @@ public class ProjectDataPasteAction extends ProjectDataCopyCutBaseAction {
 	 * Remove descendant nodes from the list; having the parent node
 	 * is enough when folders are getting pasted.
 	 */
-	private boolean removeDecendantsFromList(List<GTreeNode> list) {
+	private boolean removeDescendantsFromList(List<GTreeNode> list) {
 		List<GTreeNode> newList = new ArrayList<>();
 		for (int i = 0; i < list.size(); i++) {
 			GTreeNode destNode = list.get(i);

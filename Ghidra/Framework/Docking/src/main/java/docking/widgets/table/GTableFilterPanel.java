@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,30 +24,22 @@ import javax.swing.*;
 import javax.swing.border.BevelBorder;
 import javax.swing.event.*;
 import javax.swing.table.TableColumnModel;
-import javax.swing.table.TableModel;
 
+import org.jdom.Attribute;
 import org.jdom.Element;
 
-import docking.ActionContext;
 import docking.DockingWindowManager;
-import docking.help.HelpService;
-import docking.menu.*;
 import docking.widgets.EmptyBorderButton;
-import docking.widgets.EventTrigger;
 import docking.widgets.filter.*;
 import docking.widgets.label.GDLabel;
 import docking.widgets.table.columnfilter.ColumnBasedTableFilter;
-import docking.widgets.table.columnfilter.ColumnFilterSaveManager;
-import docking.widgets.table.constraint.dialog.ColumnFilterDialog;
+import docking.widgets.table.columnfilter.ColumnFilterManager;
 import ghidra.framework.options.PreferenceState;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
-import ghidra.util.datastruct.WeakDataStructureFactory;
-import ghidra.util.datastruct.WeakSet;
 import ghidra.util.exception.AssertException;
 import ghidra.util.task.SwingUpdateManager;
-import resources.Icons;
-import resources.ResourceManager;
+import help.HelpService;
 import utilities.util.reflection.ReflectionUtilities;
 import utility.function.Callback;
 
@@ -68,14 +60,14 @@ import utility.function.Callback;
  * <p>
  *
  * <u>Filtering</u><br>
- * The filtering behavior is controlled by the filter button displayed to the right of this 
+ * The filtering behavior is controlled by the filter button displayed to the right of this
  * panel's text field.
  * <p>
  *
  * <b><u>Important Usage Notes</u></b>
  * <ul>
- *     <li><b><a id="translation"></a>You must translate row values retrieved from the table using
- *     this panel.</b>
+ *     <li><a id="translation"></a><b>You must translate row values retrieved from the table using
+ *     this panel.</b></li>
  *     <p>
  *     Since this class wraps the given table with a new model, you must use this class to
  *     translate row number values.  For example, when getting the selected row, the normal Java
@@ -93,19 +85,19 @@ import utility.function.Callback;
  *         </span>
  *     </pre>
  *
- *     <li><b>This class may set a new model on the given table, which can affect how tables are sized.</b>
+ *     <li><b>This class may set a new model on the given table, which can affect how tables are sized.</b></li>
  *     <p>
  *      If {@link JTable#getAutoCreateColumnsFromModel()} returns true, then the columns will
  *      be recreated and resized when this class is constructed.
  *     <li>The {@link TableFilter} used by this class will be passed the empty string ("") when
- *     {@link TableFilter#acceptsRow(Object)} is called.
+ *     {@link TableFilter#acceptsRow(Object)} is called.</li>
  *     <li><b>You cannot rely on {@link JTable#getRowCount()} to access all of the table data,
- *     since the data may be filtered.</b>
+ *     since the data may be filtered.</b></li>
  *     <p>
  *     To get a row count that is always all of the model's data, call
  *     {@link #getUnfilteredRowCount()}.
  * </ul>
- * 
+ *
  * @param <ROW_OBJECT> the row object type for this given table and model
  */
 public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
@@ -113,41 +105,42 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	public static final String FILTER_TEXTFIELD_NAME = "filter.panel.textfield";
 	private static final String FILTER_STATE = "FILTER_STATE";
 	private static final String FILTER_EXTENSION = ".FilterExtension";
-	private static final Icon FILTER_ON_ICON = ResourceManager.loadImage("images/filter_on.png");
-	private static final Icon FILTER_OFF_ICON = ResourceManager.loadImage("images/filter_off.png");
-	private static final Icon APPLY_FILTER_ICON = Icons.OPEN_FOLDER_ICON;
-	private static final Icon CLEAR_FILTER_ICON = Icons.DELETE_ICON;
 
 	private JTable table;
-	private RowObjectFilterModel<ROW_OBJECT> textFilterModel;
+	private RowObjectFilterModel<ROW_OBJECT> rowObjectFilterModel;
 	private JLabel searchLabel;
 
 	private FilterTextField filterField;
 	private FilterListener filterListener = new GTableFilterListener();
 
-	private WeakSet<Callback> listeners =
-		WeakDataStructureFactory.createSingleThreadAccessWeakSet();
-
-	private FilterOptions filterOptions = new FilterOptions();
+	private static final FilterOptions DEFAULT_OPTIONS = new FilterOptions();
+	private FilterOptions filterOptions = DEFAULT_OPTIONS;
 	private TableTextFilterFactory<ROW_OBJECT> filterFactory =
 		new DefaultTableTextFilterFactory<>(filterOptions);
 	private RowFilterTransformer<ROW_OBJECT> transformer;
 	private TableFilter<ROW_OBJECT> secondaryTableFilter;
-	private ColumnBasedTableFilter<ROW_OBJECT> columnTableFilter;
-	private List<ColumnBasedTableFilter<ROW_OBJECT>> savedFilters = new ArrayList<>();
 	private EmptyBorderButton filterStateButton;
+
+	// This tracks whether the filter has been configured to be part of the display, whether by the
+	// user or via the API.
+	private boolean isFilterDisplayed = true;
+
+	private ColumnFilterManager<ROW_OBJECT> columnFilterManager;
 
 	private String uniquePreferenceKey;
 
-	private MultiStateDockingAction<ColumnBasedTableFilter<ROW_OBJECT>> columnFilterAction;
-	private ColumnFilterDialog<ROW_OBJECT> columnFilterDialog;
-	private ColumnBasedTableFilter<ROW_OBJECT> lastUsedColumnFilter;
-
-	private SwingUpdateManager updateManager = new SwingUpdateManager(250, 1000, () -> {
+	private SwingUpdateManager filterUpdater = new SwingUpdateManager(250, 1000, () -> {
 		String text = filterField.getText();
 		TableFilter<ROW_OBJECT> tableFilter = filterFactory.getTableFilter(text, transformer);
-		textFilterModel.setTableFilter(
-			getCombinedTableFilter(secondaryTableFilter, tableFilter, columnTableFilter));
+
+		// Having an edit active when the data changes can lead to incorrect row editing.  The table
+		// knows which row is being edited by number.   If the data for that row number changes as a
+		// result of a filter, the table does not know this and may update the wrong row data.
+		table.editingCanceled(null);
+
+		ColumnBasedTableFilter<ROW_OBJECT> columnFilter = columnFilterManager.getCurrentFilter();
+		rowObjectFilterModel.setTableFilter(
+			getCombinedTableFilter(secondaryTableFilter, tableFilter, columnFilter));
 	});
 
 	/** I'm a field so that my weak reference won't go away */
@@ -169,12 +162,12 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 
 		@Override
 		public void columnRemoved(TableColumnModelEvent e) {
-			updateTableContents();
+			filterUpdater.updateLater();
 		}
 
 		@Override
 		public void columnAdded(TableColumnModelEvent e) {
-			updateTableContents();
+			filterUpdater.updateLater();
 		}
 	};
 
@@ -195,17 +188,47 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		this(table, tableModel, " Filter: ");
 	}
 
+	/**
+	 * Sets an accessible name on the filter component. This prefix will be used to assign
+	 * meaningful accessible names to the filter text field and the filter options button such
+	 * that screen readers will properly describe them.
+	 * <P>
+	 * This prefix should be the base name that describes the type of items in the table.  For
+	 * example if the table contains fruits, then "Fruits" would be an appropriate prefix name.
+	 * This method will then append the necessary information to name the text field and the button.
+	 *
+	 * @param namePrefix the accessible name prefix to assign to the filter component. 
+	 */
+	public void setAccessibleNamePrefix(String namePrefix) {
+		filterField.setAccessibleNamePrefix(namePrefix);
+		String filterOptionsPrefix = namePrefix + " Filter Options";
+		filterStateButton.setName(filterOptionsPrefix + " Button");
+
+		// screen reader reads the accessible name followed by the role ("button" in this case)
+		// so don't append "button" to the accessible name
+		filterStateButton.getAccessibleContext().setAccessibleName(filterOptionsPrefix);
+
+		// Setting the accessible description to empty string prevents it from reading any tooltips
+		// on the button when the button gets focus. These buttons tend to have particularly large
+		// tooltips which seem excessive to read to the user every time they get focus. We may need
+		// to revisit this decision.
+		filterStateButton.getAccessibleContext().setAccessibleDescription("");
+	}
+
 	public GTableFilterPanel(JTable table, RowObjectTableModel<ROW_OBJECT> tableModel,
 			String filterLabel) {
 		this.table = table;
-
-		buildPanel(filterLabel);
 
 		uniquePreferenceKey = createUniqueFilterPreferenceKey(table);
 
 		transformer = new DefaultRowFilterTransformer<>(tableModel, table.getColumnModel());
 
-		textFilterModel = installTableModel(tableModel);
+		rowObjectFilterModel = installTableModel(tableModel);
+
+		columnFilterManager = new ColumnFilterManager<ROW_OBJECT>(table, rowObjectFilterModel,
+			getPreferenceKey(), filterUpdater::updateLater);
+
+		buildPanel(filterLabel);
 
 		TableColumnModel columnModel = table.getColumnModel();
 		columnModel.addColumnModelListener(columnModelListener);
@@ -214,46 +237,76 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		table.addPropertyChangeListener(badProgrammingPropertyChangeListener);
 
 		DockingWindowManager.registerComponentLoadedListener(this,
-			(windowManager, provider) -> initialize(windowManager));
+			(windowManager, provider) -> componentLoaded(windowManager));
+
+		if (table instanceof GTable gTable) {
+			gTable.setTableFilterPanel(this);
+		}
 	}
 
-	private void initialize(DockingWindowManager windowManager) {
-		loadFilterPreference(windowManager);
-		initializeSavedFilters();
+	private void componentLoaded(DockingWindowManager windowManager) {
+
+		if (windowManager == null) {
+			return;
+		}
+
+		// 
+		// We have just been loaded into the UI.  The window manager has the current preference 
+		// state if any has been saved.  First, load any saved state into this class.
+		// 
+		PreferenceState preferenceState =
+			windowManager.getPreferenceState(uniquePreferenceKey);
+		loadFromPreferenceState(preferenceState);
+
+		//
+		// Next, register a preference state supplier so that we will get asked for our current 
+		// state when the tool is saved.  When asked for our state, we will make the decision as to
+		// whether or not we have anything to save.  There is no need to remove our supplier later, 
+		// as it will be disposed when the tool is closed.
+		// 
+		windowManager.registerPreferenceStateSupplier(uniquePreferenceKey,
+			() -> createPreferenceState());
 	}
 
-	private void loadFilterPreference(DockingWindowManager dockingWindowManager) {
-		if (dockingWindowManager != null) {
-			PreferenceState preferenceState =
-				dockingWindowManager.getPreferenceState(uniquePreferenceKey);
-			if (preferenceState != null) {
-				Element xmlElement = preferenceState.getXmlElement(FILTER_STATE);
-				restoreFromXML(xmlElement);
+	private void loadFromPreferenceState(PreferenceState preferenceState) {
+		if (preferenceState == null) {
+			return;
+		}
+
+		Element element = preferenceState.getXmlElement(FILTER_STATE);
+		if (element == null) {
+			return;
+		}
+
+		filterOptions = FilterOptions.restoreFromXML(element);
+		updateFilterFactory();
+
+		Attribute attribute = element.getAttribute("IS_SHOWING");
+		if (attribute != null) { // null when loading old settings
+			boolean shouldBeDisplayed = Boolean.parseBoolean(attribute.getValue());
+			if (shouldBeDisplayed != isFilterDisplayed) {
+				doToggleVisibility();
 			}
 		}
+
+		filterUpdater.updateLater();
 	}
 
-	private void doSaveState() {
+	private PreferenceState createPreferenceState() {
+
+		if (isDefaultFilterOptions()) {
+			return null;
+		}
+
 		PreferenceState preferenceState = new PreferenceState();
-		preferenceState.putXmlElement(FILTER_STATE, saveToXML());
-
-		DockingWindowManager dockingWindowManager = DockingWindowManager.getInstance(table);
-		if (dockingWindowManager != null) {
-			dockingWindowManager.putPreferenceState(uniquePreferenceKey, preferenceState);
-		}
+		Element xmlElement = filterOptions.toXML();
+		xmlElement.setAttribute("IS_SHOWING", Boolean.toString(isFilterDisplayed));
+		preferenceState.putXmlElement(FILTER_STATE, xmlElement);
+		return preferenceState;
 	}
 
-	private Element saveToXML() {
-		return filterOptions.toXML();
-	}
-
-	private void restoreFromXML(Element xmlElement) {
-		if (xmlElement != null) {
-			this.filterOptions = FilterOptions.restoreFromXML(xmlElement);
-			updateFilterFactory();
-			updateTableContents();
-
-		}
+	private boolean isDefaultFilterOptions() {
+		return isFilterDisplayed && DEFAULT_OPTIONS.equals(filterOptions);
 	}
 
 	protected TableFilter<ROW_OBJECT> getCombinedTableFilter(TableFilter<ROW_OBJECT> filter1,
@@ -294,18 +347,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	 * @param newFilter the ColumnTableFilter to use for filtering this table.
 	 */
 	public void setColumnTableFilter(ColumnBasedTableFilter<ROW_OBJECT> newFilter) {
-		if (Objects.equals(newFilter, this.columnTableFilter)) {
-			return;
-		}
-		if (columnTableFilter != null && !columnTableFilter.isSaved()) {
-			lastUsedColumnFilter = columnTableFilter;
-		}
-		columnTableFilter = newFilter;
-		updateTableContents();
-		updateColumnFilterButton();
-		if (columnFilterDialog != null) {
-			columnFilterDialog.filterChanged(newFilter);
-		}
+		columnFilterManager.setFilter(newFilter);
 	}
 
 	/**
@@ -319,7 +361,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	 */
 	public void setFilterRowTransformer(RowFilterTransformer<ROW_OBJECT> transformer) {
 		this.transformer = transformer;
-		updateTableContents();
+		filterUpdater.updateLater();
 	}
 
 	/**
@@ -330,7 +372,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	 */
 	public void setSecondaryFilter(TableFilter<ROW_OBJECT> tableFilter) {
 		this.secondaryTableFilter = tableFilter;
-		updateTableContents();
+		filterUpdater.updateLater();
 	}
 
 	/**
@@ -341,8 +383,52 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	public void setFilterOptions(FilterOptions filterOptions) {
 		this.filterOptions = filterOptions;
 		updateFilterFactory();
-		updateTableContents();
-		doSaveState();
+		filterUpdater.updateLater();
+	}
+
+	/**
+	 * Returns the filter options used by the filter factory of this class.
+	 * @return the filter options used by the filter factory of this class.
+	 */
+	public FilterOptions getFilterOptions() {
+		return filterOptions;
+	}
+
+	/**
+	 * Activates this filter by showing it, if not visible, and then requesting focus in the filter
+	 * text field. 
+	 */
+	public void activate() {
+		if (!isFilterDisplayed) {
+			setVisible(true);
+			isFilterDisplayed = true;
+		}
+
+		requestFocus();
+	}
+
+	/**
+	 * Changes the visibility of this filter panel, make it not visible it if showing, showing it if
+	 * not visible. 
+	 */
+	public void toggleVisibility() {
+		doToggleVisibility();
+		if (isFilterDisplayed) {
+			requestFocus();
+		}
+	}
+
+	private void doToggleVisibility() {
+		if (isFilterDisplayed) {
+			setFilterText(""); // clear the filter when not showing to avoid confusing the user
+			setVisible(false);
+			isFilterDisplayed = false;
+			return;
+		}
+
+		// make filter displayed and maybe focus it
+		setVisible(true);
+		isFilterDisplayed = true;
 	}
 
 	private void buildPanel(String filterLabel) {
@@ -362,7 +448,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		add(buildFilterStateButton());
 		if (isTableColumnFilterableModel()) {
 			add(Box.createHorizontalStrut(5));
-			add(buildColumnFilterStateButton());
+			add(columnFilterManager.getConfigureButton());
 		}
 
 		HelpService helpService = DockingWindowManager.getHelpService();
@@ -370,7 +456,6 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		helpService.registerHelp(filterStateButton, helpLocation);
 		helpService.registerHelp(searchLabel, helpLocation);
 		helpService.registerHelp(filterField, helpLocation);
-
 	}
 
 	private JComponent buildFilterStateButton() {
@@ -393,107 +478,6 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		return table.getModel() instanceof RowObjectFilterModel;
 	}
 
-	@SuppressWarnings("unchecked")
-	private JComponent buildColumnFilterStateButton() {
-
-		RowObjectFilterModel<ROW_OBJECT> tableModel =
-			(RowObjectFilterModel<ROW_OBJECT>) table.getModel();
-		columnFilterAction =
-			new NonToolbarMultiStateAction<>("Column Filter", "GTableFilterPanel") {
-
-				@Override
-				public void actionStateChanged(
-						ActionState<ColumnBasedTableFilter<ROW_OBJECT>> newActionState,
-						EventTrigger trigger) {
-					if (trigger != EventTrigger.GUI_ACTION) {
-						return;
-					}
-					ColumnFilterActionState state = (ColumnFilterActionState) newActionState;
-					state.performAction();
-				}
-
-				@Override
-				protected void doActionPerformed(ActionContext context) {
-					showFilterDialog(tableModel);
-				}
-
-			};
-		columnFilterAction.setPerformActionOnPrimaryButtonClick(true);
-		HelpLocation helpLocation = new HelpLocation("Trees", "Column_Filters");
-		columnFilterAction.setHelpLocation(helpLocation);
-
-		updateFilterFactory();
-		updateColumnFilterButton();
-		JButton button = columnFilterAction.createButton();
-		DockingWindowManager.getHelpService().registerHelp(button, helpLocation);
-
-		return button;
-	}
-
-	private void initializeSavedFilters() {
-		TableModel model = table.getModel();
-		if (!(model instanceof GDynamicColumnTableModel)) {
-			return;
-		}
-		@SuppressWarnings("unchecked")
-		GDynamicColumnTableModel<ROW_OBJECT, ?> dynamicModel =
-			(GDynamicColumnTableModel<ROW_OBJECT, ?>) model;
-
-		ColumnFilterSaveManager<ROW_OBJECT> saveManager =
-			new ColumnFilterSaveManager<>(this, table, dynamicModel, dynamicModel.getDataSource());
-		savedFilters = saveManager.getSavedFilters();
-		Collections.reverse(savedFilters);
-		updateColumnFilterButton();
-	}
-
-	private void updateColumnFilterButton() {
-		List<ActionState<ColumnBasedTableFilter<ROW_OBJECT>>> list = getActionStates();
-
-		columnFilterAction.setActionStates(list);
-	}
-
-	private List<ActionState<ColumnBasedTableFilter<ROW_OBJECT>>> getActionStates() {
-		List<ActionState<ColumnBasedTableFilter<ROW_OBJECT>>> list = new ArrayList<>();
-		if (columnTableFilter == null) {
-			list.add(new CreateFilterActionState());
-		}
-		else {
-			list.add(new EditFilterActionState(columnTableFilter));
-			list.add(new ClearFilterActionState());
-		}
-		if (lastUsedColumnFilter != null) {
-			list.add(new ApplyLastUsedActionState(lastUsedColumnFilter));
-		}
-		for (ColumnBasedTableFilter<ROW_OBJECT> filter : savedFilters) {
-			list.add(new ApplyFilterActionState(filter));
-		}
-		return list;
-	}
-
-	private void showFilterDialog(RowObjectFilterModel<ROW_OBJECT> tableModel) {
-		if (columnFilterDialog == null) {
-			if (ColumnFilterDialog.hasFilterableColumns(table, tableModel)) {
-				DockingWindowManager dockingWindowManager = DockingWindowManager.getInstance(table);
-				loadFilterPreference(dockingWindowManager);
-				columnFilterDialog = new ColumnFilterDialog<>(this, table, tableModel);
-			}
-			else {
-				Msg.showError(this, this, "Column Filter Error",
-					"This table contains no filterable columns!");
-				return;
-			}
-
-		}
-
-		columnFilterDialog.setCloseCallback(() -> {
-			doSaveState();
-			updateFilterFactory();
-			columnFilterDialog = null;
-		});
-
-		DockingWindowManager.showDialog(GTableFilterPanel.this, columnFilterDialog);
-	}
-
 	private void updateFilterFactory() {
 		filterStateButton.setIcon(filterOptions.getFilterStateIcon());
 		filterStateButton.setToolTipText(filterOptions.getFilterDescription());
@@ -508,10 +492,10 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		RowObjectFilterModel<ROW_OBJECT> newModel = createTextFilterModel(currentModel);
 
 		// only wrapped models are set on tables, since they have to replace the original
-		if (newModel instanceof TableModelWrapper) {
+		if (newModel instanceof WrappingTableModel) {
 			table.setModel(newModel);
 
-			TableModelWrapper<ROW_OBJECT> wrapper = (TableModelWrapper<ROW_OBJECT>) newModel;
+			WrappingTableModel wrapper = (WrappingTableModel) newModel;
 			currentModel.addTableModelListener(new TranslatingTableModelListener(wrapper));
 		}
 
@@ -521,7 +505,6 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		return newModel;
 	}
 
-	// Cast from ThreadedTableModel...
 	protected RowObjectFilterModel<ROW_OBJECT> createTextFilterModel(
 			RowObjectTableModel<ROW_OBJECT> model) {
 		RowObjectFilterModel<ROW_OBJECT> newModel = null;
@@ -556,20 +539,16 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	}
 
 	public RowObjectFilterModel<ROW_OBJECT> getTableFilterModel() {
-		return textFilterModel;
-	}
-
-	/** Convenience method to refilter the table's contents */
-	private void updateTableContents() {
-		updateManager.updateLater();
-		notifyFilterChanged();
-	}
-
-	private void notifyFilterChanged() {
-		listeners.forEach(callback -> callback.call());
+		return rowObjectFilterModel;
 	}
 
 	public void dispose() {
+
+		DockingWindowManager dwm = DockingWindowManager.getInstance(this);
+		if (dwm != null) {
+			dwm.removePreferenceStateSupplier(uniquePreferenceKey);
+		}
+
 		// Unusual Code Alert: we have to remove this particular listener due to a memory leak.
 		// Removing the listener or null-ing out the reference both allow us to be garbage
 		// collected.  If we do neither, then we are not collected for some strange reason (even
@@ -578,9 +557,11 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		columnModel.removeColumnModelListener(columnModelListener);
 		columnModelListener = null;
 
+		columnFilterManager.dispose();
+
 		table.removePropertyChangeListener(badProgrammingPropertyChangeListener);
 
-		updateManager.dispose();
+		filterUpdater.dispose();
 		if (table instanceof GTable) {
 			((GTable) table).dispose();
 		}
@@ -661,7 +642,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 			return viewRow;
 		}
 
-		return textFilterModel.getModelRow(viewRow);
+		return rowObjectFilterModel.getModelRow(viewRow);
 	}
 
 	/**
@@ -675,7 +656,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	 * @return the row in the table for the given model row.
 	 */
 	public int getViewRow(int modelRow) {
-		return textFilterModel.getViewRow(modelRow);
+		return rowObjectFilterModel.getViewRow(modelRow);
 	}
 
 	/**
@@ -685,22 +666,37 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	 * @return the row object matching the given index
 	 */
 	public ROW_OBJECT getRowObject(int viewRow) {
-		ROW_OBJECT rowObject = textFilterModel.getRowObject(viewRow);
+		ROW_OBJECT rowObject = rowObjectFilterModel.getRowObject(viewRow);
 		return rowObject;
 	}
 
 	/**
 	 * Select the given row object.  No selection will be made if the object is filtered out of
-	 * view.
+	 * view.   Passing {@code null} will clear the selection.
 	 *
 	 * @param t the row object to select
 	 */
 	public void setSelectedItem(ROW_OBJECT t) {
-		int viewRow = textFilterModel.getViewIndex(t);
+		if (t == null) {
+			table.clearSelection();
+			return;
+		}
+
+		int viewRow = rowObjectFilterModel.getViewIndex(t);
 		if (viewRow >= 0) {
 			table.setRowSelectionInterval(viewRow, viewRow);
 			scrollToSelectedRow();
 		}
+	}
+
+	/**
+	 * Select the given row objects.  No selection will be made if the objects are filtered out of
+	 * view.  Passing a {@code null} list or an empty list will clear the selection.
+	 *
+	 * @param items the row objects to select
+	 */
+	public void setSelectedItems(List<ROW_OBJECT> items) {
+		TableUtils.setSelectedItems(table, items);
 	}
 
 	/**
@@ -735,7 +731,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 		if (row < 0) {
 			return null;
 		}
-		return textFilterModel.getRowObject(row);
+		return rowObjectFilterModel.getRowObject(row);
 	}
 
 	/**
@@ -751,7 +747,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 
 		List<ROW_OBJECT> list = new ArrayList<>(rows.length);
 		for (int row : rows) {
-			list.add(textFilterModel.getRowObject(row));
+			list.add(rowObjectFilterModel.getRowObject(row));
 		}
 		return list;
 	}
@@ -764,7 +760,7 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	 * @return true if in the view
 	 */
 	public boolean isInView(ROW_OBJECT o) {
-		int rowIndex = textFilterModel.getRowIndex(o);
+		int rowIndex = rowObjectFilterModel.getRowIndex(o);
 		return rowIndex >= 0;
 	}
 
@@ -773,11 +769,48 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	}
 
 	public int getRowCount() {
-		return textFilterModel.getRowCount();
+		return rowObjectFilterModel.getRowCount();
 	}
 
 	public int getUnfilteredRowCount() {
-		return textFilterModel.getUnfilteredRowCount();
+		return rowObjectFilterModel.getUnfilteredRowCount();
+	}
+
+	/**
+	 * Generates a key used to store user filter configuration state.  You can override this
+	 * method to generate unique keys yourself.  You are required to override this method if
+	 * you create multiple versions of a filter panel from the same place in your code, as
+	 * multiple instances created in the same place will cause them all to share the same key and
+	 * thus to have the same filter settings when they are created initially.
+	 * <p>
+	 * As an example, consider a plugin that creates <code>n</code> providers.  If each provider uses
+	 * a filter panel, then each provider will share the same filter settings when that provider
+	 * is created.  If this is not what you want, then you need to override this method to
+	 * generate a unique key for each provider.
+	 *
+	 * @param jTable the table
+	 * @return a key used to store user filter configuration state.
+	 */
+	public String createUniqueFilterPreferenceKey(JTable jTable) {
+		return generateFilterPreferenceKey(jTable, FILTER_EXTENSION);
+	}
+
+	/**
+	 * Returns the ColumnTableFilter that has been set on this GTableFilterPanel or null if there
+	 * is none.
+	 *
+	 * @return the ColumnTableFilter that has been set.
+	 */
+	public ColumnBasedTableFilter<ROW_OBJECT> getColumnTableFilter() {
+		return columnFilterManager.getCurrentFilter();
+	}
+
+	/**
+	 * Return a unique key that can be used to store preferences for this table.
+	 * @return a unique key that can be used to store preferences for this table.
+	 */
+	public String getPreferenceKey() {
+		return uniquePreferenceKey;
 	}
 
 //==================================================================================================
@@ -833,9 +866,9 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	 */
 	private class TranslatingTableModelListener implements TableModelListener {
 
-		private TableModelWrapper<ROW_OBJECT> tableModelWrapper;
+		private WrappingTableModel tableModelWrapper;
 
-		TranslatingTableModelListener(TableModelWrapper<ROW_OBJECT> tableModelWrapper) {
+		TranslatingTableModelListener(WrappingTableModel tableModelWrapper) {
 			this.tableModelWrapper = tableModelWrapper;
 		}
 
@@ -846,11 +879,11 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 			// so that the indices used in the event are correct for the filtered state of the
 			// view.
 			//
-			tableModelWrapper.fireTableDataChanged(translateEventForFilter(e));
+			tableModelWrapper.fireTableChanged(translateEventForFilter(e));
 		}
 
 		private TableModelEvent translateEventForFilter(TableModelEvent event) {
-			int rowCount = textFilterModel.getUnfilteredRowCount();
+			int rowCount = rowObjectFilterModel.getUnfilteredRowCount();
 			if (rowCount == 0) {
 				return event; // nothing to translate--no data
 			}
@@ -865,14 +898,14 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 
 			if (firstRow == 0 && lastRow == rowCount - 1) {
 				firstRow = 0;
-				lastRow = Math.max(0, textFilterModel.getRowCount() - 1);
+				lastRow = Math.max(0, rowObjectFilterModel.getRowCount() - 1);
 			}
 			else {
 				// translate to the filtered view (from the wrapped model's full universe)
 				firstRow = getViewRow(firstRow);
 				lastRow = getViewRow(lastRow);
 			}
-			return new TableModelEvent(textFilterModel, firstRow, lastRow, event.getColumn(),
+			return new TableModelEvent(rowObjectFilterModel, firstRow, lastRow, event.getColumn(),
 				event.getType());
 		}
 	}
@@ -887,9 +920,8 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 			}
 
 			isUpdatingModel = true;
-			if (textFilterModel instanceof TableModelWrapper) {
-				TableModelWrapper<ROW_OBJECT> tableModelWrapper =
-					(TableModelWrapper<ROW_OBJECT>) textFilterModel;
+			if (rowObjectFilterModel instanceof WrappingTableModel) {
+				WrappingTableModel tableModelWrapper = (WrappingTableModel) rowObjectFilterModel;
 				tableModelWrapper.wrappedModelChangedFromTableChangedEvent();
 			}
 			filterField.alert();
@@ -898,75 +930,16 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 	}
 
 	private class GTableFilterListener implements FilterListener {
-
 		@Override
 		public void filterChanged(String text) {
-			updateTableContents();
+			filterUpdater.updateLater();
 		}
-	}
-
-	/**
-	 * Generates a key used to store user filter configuration state.  You can override this
-	 * method to generate unique keys yourself.  You are required to override this method if
-	 * you create multiple versions of a filter panel from the same place in your code, as
-	 * multiple instances created in the same place will cause them all to share the same key and
-	 * thus to have the same filter settings when they are created initially.
-	 * <p>
-	 * As an example, consider a plugin that creates <code>n</code> providers.  If each provider uses
-	 * a filter panel, then each provider will share the same filter settings when that provider
-	 * is created.  If this is not what you want, then you need to override this method to
-	 * generate a unique key for each provider.
-	 * 
-	 * @param jTable the table
-	 * @return a key used to store user filter configuration state.
-	 */
-	public String createUniqueFilterPreferenceKey(JTable jTable) {
-		return generateFilterPreferenceKey(jTable, FILTER_EXTENSION);
-	}
-
-	/**
-	 * Returns the ColumnTableFilter that has been set on this GTableFilterPanel or null if there
-	 * is none.
-	 *
-	 * @return the ColumnTableFilter that has been set.
-	 */
-	public ColumnBasedTableFilter<ROW_OBJECT> getColumnTableFilter() {
-		return columnTableFilter;
-	}
-
-	/**
-	 * Return a unique key that can be used to store preferences for this table.
-	 * @return a unique key that can be used to store preferences for this table.
-	 */
-	public String getPreferenceKey() {
-		return uniquePreferenceKey;
-	}
-
-	/**
-	 * Updates the "quick filter" multistate button.
-	 * @param filter the filter to add or remove.
-	 * @param add if true, the filter is added to the quick list. Otherwise, it is removed.
-	 */
-	public void updateSavedFilters(ColumnBasedTableFilter<ROW_OBJECT> filter, boolean add) {
-		if (add) {
-			ArrayList<ColumnBasedTableFilter<ROW_OBJECT>> list = new ArrayList<>();
-			list.add(filter);
-			list.addAll(savedFilters);
-			savedFilters = list;
-			if (filter.isEquivalent(columnTableFilter)) {
-				setColumnTableFilter(filter);
-			}
-		}
-		else {
-			savedFilters.remove(filter);
-		}
-
-		updateColumnFilterButton();
 	}
 
 //==================================================================================================
 // Static Methods
 //==================================================================================================
+
 	private static String generateFilterPreferenceKey(JTable jTable, String extension) {
 
 		if (jTable instanceof GTable) {
@@ -989,79 +962,5 @@ public class GTableFilterPanel<ROW_OBJECT> extends JPanel {
 			ReflectionUtilities.filterStackTrace(stackTrace, filterName);
 		String clientName = filteredTrace[0].getClassName();
 		return clientName;
-	}
-
-//==================================================================================================
-// Inner Classes
-//==================================================================================================	
-
-	private abstract class ColumnFilterActionState
-			extends ActionState<ColumnBasedTableFilter<ROW_OBJECT>> {
-
-		ColumnFilterActionState(String name, Icon icon, ColumnBasedTableFilter<ROW_OBJECT> filter) {
-			super(name, icon, filter);
-		}
-
-		abstract void performAction();
-	}
-
-	String getFilterName(ColumnBasedTableFilter<ROW_OBJECT> filter) {
-		String filterName = filter.getName();
-		return filterName == null ? "Unsaved" : filterName;
-	}
-
-	private class ClearFilterActionState extends ColumnFilterActionState {
-		public ClearFilterActionState() {
-			super("Clear Filter", CLEAR_FILTER_ICON, null);
-		}
-
-		@Override
-		void performAction() {
-			setColumnTableFilter(null);
-		}
-	}
-
-	private class CreateFilterActionState extends ColumnFilterActionState {
-		public CreateFilterActionState() {
-			super("Create Column Filter", FILTER_OFF_ICON, null);
-		}
-
-		@Override
-		void performAction() {
-			showFilterDialog(textFilterModel);
-		}
-	}
-
-	private class EditFilterActionState extends ColumnFilterActionState {
-		public EditFilterActionState(ColumnBasedTableFilter<ROW_OBJECT> filter) {
-			super("Edit: " + getFilterName(filter), FILTER_ON_ICON, filter);
-		}
-
-		@Override
-		void performAction() {
-			showFilterDialog(textFilterModel);
-		}
-	}
-
-	private class ApplyFilterActionState extends ColumnFilterActionState {
-		public ApplyFilterActionState(ColumnBasedTableFilter<ROW_OBJECT> filter) {
-			super("Apply: " + getFilterName(filter), APPLY_FILTER_ICON, filter);
-		}
-
-		@Override
-		void performAction() {
-			setColumnTableFilter(getUserData());
-		}
-	}
-
-	private class ApplyLastUsedActionState extends ColumnFilterActionState {
-		public ApplyLastUsedActionState(ColumnBasedTableFilter<ROW_OBJECT> filter) {
-			super("Apply Last Unsaved", FILTER_ON_ICON, filter);
-		}
-
-		@Override
-		void performAction() {
-			setColumnTableFilter(getUserData());
-		}
 	}
 }
